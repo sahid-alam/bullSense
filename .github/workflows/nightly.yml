@@ -13,6 +13,8 @@ jobs:
       - run: npm ci
       - run: npm run job:nightly
         env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           DATABASE_CA_CERT: ${{ secrets.DATABASE_CA_CERT }}
           FMP_API_KEY: ${{ secrets.FMP_API_KEY }}

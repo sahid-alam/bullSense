@@ -1,20 +1,23 @@
 /**
  * Nightly job (17:30 ET weekdays via GitHub Actions):
- * ingest regime inputs → compute Radar → persist → (later) run squeeze genome,
- * mark positions, Watchtower sweep.
- *
- * Runs in DRY-RUN (console only) when DATABASE_URL is a placeholder, so the
- * engine is testable before any account exists.
+ * gather regime inputs → compute Radar (with hysteresis vs stored history) → persist
+ * via Supabase REST → log the run. Dry-runs cleanly if the store isn't configured.
  */
 import { fetchDailyBars } from "../providers/prices.js";
-import { computeRadar, sma } from "../lib/radar.js";
+import { computeRadar, sma, applyHysteresis, bandRegime, type Regime } from "../lib/radar.js";
+import { storeAvailable, upsertRegimeScore, getRecentRegimes, logJobRun, routineEnabled, touchRoutine } from "../providers/store.js";
 
 const SECTOR_ETFS = ["XLK", "XLF", "XLV", "XLE", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE", "XLC"];
 
 async function main() {
   const started = Date.now();
+  const persist = storeAvailable();
 
-  // --- gather inputs (Yahoo free; FMP replaces once key exists) ---
+  if (persist && !(await routineEnabled("nightly"))) {
+    console.log("nightly: routine disabled or engine paused — archiving only is a later concern; exiting.");
+    return;
+  }
+
   const [vix, vix3m, spy, hyg, lqd] = await Promise.all([
     fetchDailyBars("^VIX", "3y"),
     fetchDailyBars("^VIX3M", "3y"),
@@ -41,43 +44,55 @@ async function main() {
   });
 
   const asOf = spy[spy.length - 1].date;
+
+  // hysteresis: a regime flip needs 2 consecutive closes in the new band
+  let effectiveRegime: Regime = radar.regime;
+  let prevScore: number | null = null;
+  if (persist) {
+    const recent = (await getRecentRegimes(3)).filter((r) => r.date !== asOf);
+    if (recent.length > 0) {
+      prevScore = recent[0].score;
+      const prevRegime = recent[0].regime as Regime;
+      const rawYesterday = bandRegime(recent[0].score);
+      effectiveRegime = applyHysteresis(prevRegime, radar.regime, rawYesterday);
+    }
+  }
+
   const out = {
     as_of: asOf,
     score: radar.score,
-    regime: radar.regime,
+    regime_raw: radar.regime,
+    regime: effectiveRegime,
     components: radar.components,
     breadth_detail: `${above}/${SECTOR_ETFS.length} sector ETFs above their 50DMA`,
-    heat_ceiling: radar.regime === "risk_on" ? "20%" : radar.regime === "neutral" ? "12%" : "5%",
+    heat_ceiling: effectiveRegime === "risk_on" ? "20%" : effectiveRegime === "neutral" ? "12%" : "5%",
     ms: Date.now() - started,
   };
 
-  const dbUrl = process.env.DATABASE_URL;
-  if (!dbUrl || dbUrl === "placeholder") {
-    console.log("[dry-run — no DATABASE_URL] Radar computed from live market data:\n");
+  if (!persist) {
+    console.log("[dry-run — store not configured] Radar computed from live market data:\n");
     console.log(JSON.stringify(out, null, 2));
     return;
   }
 
-  // --- persist (Supabase Postgres, TLS verified; set DATABASE_CA_CERT for direct connections) ---
-  const { default: pg } = await import("pg");
-  const ca = process.env.DATABASE_CA_CERT;
-  const pool = new pg.Pool({ connectionString: dbUrl, ssl: ca ? { ca } : true });
-  await pool.query(
-    `insert into regime_scores (date, score, regime, components, prev_score)
-     values ($1, $2, $3, $4, (select score from regime_scores where date < $1 order by date desc limit 1))
-     on conflict (date) do update set score = excluded.score, regime = excluded.regime, components = excluded.components`,
-    [asOf, radar.score, radar.regime, JSON.stringify(radar.components)],
-  );
-  await pool.query(
-    `insert into job_runs (job, trading_date, status, started_at, ms, meta)
-     values ('nightly', $1, 'ok', to_timestamp($2 / 1000.0), $3, $4)`,
-    [asOf, started, Date.now() - started, JSON.stringify(out)],
-  );
-  await pool.end();
+  await upsertRegimeScore({
+    date: asOf,
+    score: radar.score,
+    regime: effectiveRegime,
+    components: radar.components,
+    prev_score: prevScore,
+  });
+  await logJobRun("nightly", asOf, "ok", started, out);
+  await touchRoutine("nightly", `Radar ${radar.score} → ${effectiveRegime} (${out.breadth_detail})`);
   console.log("Radar persisted:", JSON.stringify(out));
 }
 
-main().catch((err) => {
+main().catch(async (err) => {
   console.error("nightly job failed:", err);
+  try {
+    if (storeAvailable()) {
+      await logJobRun("nightly", new Date().toISOString().slice(0, 10), "error", Date.now(), { error: String(err) });
+    }
+  } catch {}
   process.exit(1);
 });

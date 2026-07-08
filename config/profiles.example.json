@@ -6,7 +6,7 @@
       "equity": 100000,
       "currency": "INR",
       "broker": "paper",
-      "telegram_chat_id": null,
+      "telegram_chat_id": "5628026392",
       "holdings": [
         {
           "symbol": "CUPID.NS",
@@ -23,7 +23,7 @@
       "equity": 100000,
       "currency": "INR",
       "broker": "groww",
-      "telegram_chat_id": null,
+      "telegram_chat_id": "5628026392",
       "holdings": [
         {
           "symbol": "CUPID.NS",

@@ -8,7 +8,8 @@
     "job:hype-sweep": "tsx src/jobs/hype-sweep.ts",
     "job:briefing": "tsx src/jobs/briefing.ts",
     "job:weekly": "tsx src/jobs/weekly.ts",
-    "test:treasury": "tsx src/lib/treasury.test.ts"
+    "test:treasury": "tsx src/lib/treasury.test.ts",
+    "setup:telegram": "tsx src/jobs/telegram-setup.ts"
   },
   "dependencies": {
     "pg": "^8.13.0",

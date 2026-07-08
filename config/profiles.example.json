@@ -1,6 +1,23 @@
 {
   "profiles": [
     {
+      "id": "test",
+      "name": "Test Profile",
+      "equity": 100000,
+      "currency": "INR",
+      "broker": "paper",
+      "telegram_chat_id": null,
+      "holdings": [
+        {
+          "symbol": "CUPID.NS",
+          "exchange": "NSE",
+          "qty": 45,
+          "cost_basis": 224.68
+        }
+      ],
+      "_note": "active profile until real equity numbers arrive; Cupid position seeded as Watchtower's first live test"
+    },
+    {
       "id": "sahid",
       "name": "Sahid",
       "equity": 100000,
@@ -8,7 +25,12 @@
       "broker": "groww",
       "telegram_chat_id": null,
       "holdings": [
-        { "symbol": "CUPID.NS", "exchange": "NSE", "qty": 45, "cost_basis": 224.68 }
+        {
+          "symbol": "CUPID.NS",
+          "exchange": "NSE",
+          "qty": 45,
+          "cost_basis": 224.68
+        }
       ]
     },
     {
@@ -30,5 +52,5 @@
       "holdings": []
     }
   ],
-  "_note": "Rough placeholder equity (₹1,00,000 each) — replace with real numbers. Each profile gets independent Treasury sizing, book, alerts, and personal receipts. The engine (Radar/Scout/Lab) is shared."
+  "_note": "Rough placeholder equity (\u20b91,00,000 each) \u2014 replace with real numbers. Each profile gets independent Treasury sizing, book, alerts, and personal receipts. The engine (Radar/Scout/Lab) is shared."
 }

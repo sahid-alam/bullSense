@@ -1,0 +1,20 @@
+name: hype-sweep
+on:
+  schedule:
+    - cron: "0 14-20 * * 1-5"  # hourly 10:00–16:00 ET (14:00–20:00 UTC, EDT)
+  workflow_dispatch: {}
+jobs:
+  hype:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: npm run job:hype-sweep
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          DATABASE_CA_CERT: ${{ secrets.DATABASE_CA_CERT }}
+          SENTIMENT_API_KEY: ${{ secrets.SENTIMENT_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

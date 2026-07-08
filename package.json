@@ -1,0 +1,23 @@
+{
+  "name": "bullsense",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "job:nightly": "tsx src/jobs/nightly.ts",
+    "job:hype-sweep": "tsx src/jobs/hype-sweep.ts",
+    "job:briefing": "tsx src/jobs/briefing.ts",
+    "job:weekly": "tsx src/jobs/weekly.ts",
+    "test:treasury": "tsx src/lib/treasury.test.ts"
+  },
+  "dependencies": {
+    "pg": "^8.13.0",
+    "zod": "^3.24.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}

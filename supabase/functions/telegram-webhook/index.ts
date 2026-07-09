@@ -24,15 +24,38 @@ const HELP = [
   "/status — engine heartbeat & job health",
   "/radar — today's market regime + read",
   "/book — your positions vs their stops",
+  "/add `SYM QTY COST [STOP]` — log a position you already own (Position Intake)",
   "/stop `SYMBOL PRICE` — set an invalidation (e.g. `/stop CUPID.NS 195`)",
+  "/remove `SYMBOL` — drop a position from your book (e.g. after selling)",
   "/pause — halt new signals & alerts (archives keep running)",
   "/resume — resume the engine",
   "/help — this list",
 ].join("\n");
 
+interface Profile { id: string; equity: number; risk_prefs: any }
+
 async function isOperator(chatId: number): Promise<boolean> {
   const rows = await sql`select 1 from profiles where telegram_chat_id = ${String(chatId)} and is_operator = true limit 1`;
   return rows.length > 0;
+}
+
+/** The profile a command writes to: the operator profile for this chat, preferring the
+ *  real named account over the shared 'test' sandbox when a chat maps to both. */
+async function primaryProfileFor(chatId: number): Promise<Profile | null> {
+  const rows = await sql`
+    select id, equity, risk_prefs from profiles
+    where telegram_chat_id = ${String(chatId)} and is_operator = true
+    order by (id = 'test') asc, id limit 1`;
+  return rows[0] ?? null;
+}
+
+/** Treasury Position-Intake verdict (mirrors src/lib/treasury.ts intakeVerdict). */
+function intakeVerdict(equity: number, qty: number, cost: number, stop: number, riskMax: number) {
+  const stopDist = cost - stop;
+  const atRiskPct = (stopDist * qty) / equity;
+  const maxQty = Math.floor((equity * riskMax) / Math.max(stopDist, 1e-9));
+  const ratio = qty / Math.max(maxQty, 1);
+  return { atRiskPct, maxQty, ratio, stopDist };
 }
 
 async function handle(text: string, chatId: number): Promise<string> {
@@ -83,6 +106,60 @@ async function handle(text: string, chatId: number): Promise<string> {
     }
     lines.push("", "_Set a stop: /stop SYMBOL PRICE_");
     return lines.join("\n");
+  }
+
+  if (cmd === "/add") {
+    // Position Intake: /add SYMBOL QTY COST [STOP]
+    if (args.length < 3) return "Usage: `/add SYMBOL QTY COST [STOP]`\ne.g. `/add CUPID.NS 45 224.68 195`";
+    const symbol = args[0].toUpperCase();
+    const qty = Number(args[1]), cost = Number(args[2]);
+    const stop = args[3] !== undefined ? Number(args[3]) : null;
+    if (!isFinite(qty) || qty <= 0) return "QTY must be a positive number.";
+    if (!isFinite(cost) || cost <= 0) return "COST must be a positive number.";
+    if (stop !== null && (!isFinite(stop) || stop <= 0)) return "STOP must be a positive number.";
+    const exchange = symbol.endsWith(".NS") ? "NSE" : "US";
+
+    const profile = await primaryProfileFor(chatId);
+    if (!profile) return "No profile found for you.";
+
+    await sql`
+      insert into book (profile_id, symbol, exchange, kind, qty, cost_basis, invalidation_price)
+      values (${profile.id}, ${symbol}, ${exchange}, 'holding', ${qty}, ${cost}, ${stop})
+      on conflict (profile_id, symbol, kind)
+      do update set qty = ${qty}, cost_basis = ${cost},
+        invalidation_price = coalesce(${stop}, book.invalidation_price)`;
+
+    const lines = [`✅ *${symbol}* logged — ${qty} @ ${cost} (${profile.id}).`];
+    if (stop !== null) {
+      const riskMax = Number(profile.risk_prefs?.per_trade_risk_max ?? 0.025);
+      const v = intakeVerdict(Number(profile.equity), qty, cost, stop, riskMax);
+      if (v.stopDist <= 0) {
+        lines.push(`Stop ${stop} is at/above cost — that locks a gain, not a loss cap.`);
+      } else {
+        lines.push(`Risk to stop ${stop}: *~${(v.stopDist * qty).toFixed(0)}* (${(v.atRiskPct * 100).toFixed(1)}% of equity).`);
+        lines.push(v.ratio <= 1
+          ? `Treasury: *within formula* (max ~${v.maxQty} shares at this stop). Well-sized.`
+          : `Treasury: ⚠️ *oversized ${v.ratio.toFixed(1)}×* — the formula caps this at ~${v.maxQty} shares. You're carrying more risk than the rules allow.`);
+      }
+      lines.push("The Watchtower now guards it nightly.");
+    } else {
+      lines.push("⚠️ *No stop set.* An unguarded position is a hope, not a plan — set one:");
+      lines.push(`\`/stop ${symbol} <price>\``);
+    }
+    return lines.join("\n");
+  }
+
+  if (cmd === "/remove") {
+    if (args.length < 1) return "Usage: `/remove SYMBOL`";
+    const symbol = args[0].toUpperCase();
+    const deleted = await sql`
+      delete from book b using profiles p
+      where b.profile_id = p.id and p.telegram_chat_id = ${String(chatId)}
+        and b.symbol = ${symbol} and b.kind = 'holding'
+      returning b.symbol`;
+    return deleted.length > 0
+      ? `🗑️ Removed *${symbol}* from your book.`
+      : `No holding *${symbol}* found in your book.`;
   }
 
   if (cmd === "/stop") {

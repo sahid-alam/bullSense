@@ -289,3 +289,24 @@ export async function sumRealizedPnl(profileId: string): Promise<number> {
   const rows = await rest(`positions?select=realized_pnl&profile_id=eq.${profileId}&status=eq.closed`, { method: "GET", headers: { Prefer: "return=representation" } });
   return (rows ?? []).reduce((a: number, r: any) => a + (Number(r.realized_pnl) || 0), 0);
 }
+
+/** Distinct profile ids that currently have any positions (for personal-fund settlement). */
+export async function getProfilesWithPositions(): Promise<string[]> {
+  const rows = await rest("positions?select=profile_id", { method: "GET", headers: { Prefer: "return=representation" } });
+  return [...new Set((rows ?? []).map((r: any) => r.profile_id))] as string[];
+}
+
+/** Personal receipts summary for a profile: realized P&L, win/loss counts, open count. */
+export async function personalReceipts(profileId: string): Promise<{ closed: number; wins: number; realized: number; open: number }> {
+  const closed = await rest(`positions?select=realized_pnl&profile_id=eq.${profileId}&status=eq.closed`, { method: "GET", headers: { Prefer: "return=representation" } }) ?? [];
+  const open = await rest(`positions?select=id&profile_id=eq.${profileId}&status=eq.open`, { method: "GET", headers: { Prefer: "return=representation" } }) ?? [];
+  const realized = closed.reduce((a: number, r: any) => a + (Number(r.realized_pnl) || 0), 0);
+  const wins = closed.filter((r: any) => Number(r.realized_pnl) > 0).length;
+  return { closed: closed.length, wins, realized, open: open.length };
+}
+
+/** Most recent signal for a symbol (for /took to link a personal position). */
+export async function latestSignalForSymbol(symbol: string): Promise<{ id: number; invalidation_price: number; entry_price: number | null; conviction: number } | null> {
+  const rows = await rest(`signals?select=id,invalidation_price,entry_price,conviction&symbol=eq.${encodeURIComponent(symbol)}&order=triggered_at.desc&limit=1`, { method: "GET", headers: { Prefer: "return=representation" } });
+  return rows?.[0] ?? null;
+}

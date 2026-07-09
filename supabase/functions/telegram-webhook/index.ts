@@ -24,6 +24,8 @@ const HELP = [
   "/status — engine heartbeat & job health",
   "/radar — today's market regime + read",
   "/book — your positions vs their stops",
+  "/took `SYMBOL QTY [ENTRY]` — record that you traded a signal (tracks your P&L)",
+  "/pnl — your realized P&L, win rate, and open positions",
   "/add `SYM QTY COST [STOP]` — log a position you already own (Position Intake)",
   "/stop `SYMBOL PRICE` — set an invalidation (e.g. `/stop CUPID.NS 195`)",
   "/remove `SYMBOL` — drop a position from your book (e.g. after selling)",
@@ -146,6 +148,48 @@ async function handle(text: string, chatId: number): Promise<string> {
       lines.push("⚠️ *No stop set.* An unguarded position is a hope, not a plan — set one:");
       lines.push(`\`/stop ${symbol} <price>\``);
     }
+    return lines.join("\n");
+  }
+
+  if (cmd === "/took") {
+    // Record a signal you actually traded: /took SYMBOL QTY [ENTRY]
+    if (args.length < 2) return "Usage: `/took SYMBOL QTY [ENTRY]` — records a trade you took on a signal, so your P&L is tracked.";
+    const symbol = args[0].toUpperCase();
+    const qty = Number(args[1]);
+    if (!isFinite(qty) || qty <= 0) return "QTY must be a positive number.";
+    const profile = await primaryProfileFor(chatId);
+    if (!profile) return "No profile found for you.";
+
+    // link to the most recent signal for this symbol
+    const sig = await sql`select id, invalidation_price, entry_price, conviction from signals where symbol = ${symbol} order by triggered_at desc limit 1`;
+    if (sig.length === 0) return `No signal on record for *${symbol}*. Use /add for a manual (non-signal) position.`;
+    const s = sig[0];
+    const entry = args[2] !== undefined ? Number(args[2]) : Number(s.entry_price);
+    if (!isFinite(entry) || entry <= 0) return "ENTRY must be a positive number (or the signal must have a filled entry).";
+
+    const riskBudgetPct = (Math.abs(entry - Number(s.invalidation_price)) * qty) / profile.equity;
+    await sql`
+      insert into positions (profile_id, signal_id, symbol, side, qty, entry_price, entry_at, risk_budget_pct, invalidation_price, status)
+      values (${profile.id}, ${s.id}, ${symbol}, 'long', ${qty}, ${entry}, now(), ${riskBudgetPct}, ${Number(s.invalidation_price)}, 'open')`;
+
+    return `✅ Recorded: you took *${symbol}* — ${qty} @ ${entry} (${profile.id}).\n` +
+      `Risk to invalidation ${s.invalidation_price}: ~${(Math.abs(entry - Number(s.invalidation_price)) * qty).toFixed(0)} (${(riskBudgetPct * 100).toFixed(1)}% of equity).\n` +
+      `Your P&L on this trade is now tracked vs the engine's — see /pnl.`;
+  }
+
+  if (cmd === "/pnl") {
+    const profile = await primaryProfileFor(chatId);
+    if (!profile) return "No profile found for you.";
+    const closed = await sql`select coalesce(sum(realized_pnl),0) as realized, count(*) filter (where realized_pnl > 0) as wins, count(*) as n from positions where profile_id = ${profile.id} and status = 'closed'`;
+    const open = await sql`select count(*) as n from positions where profile_id = ${profile.id} and status = 'open'`;
+    const ts = await sql`select equity, drawdown_pct from treasury_state where profile_id = ${profile.id} order by date desc limit 1`;
+    const c = closed[0];
+    const wr = Number(c.n) > 0 ? `${((Number(c.wins) / Number(c.n)) * 100).toFixed(0)}%` : "—";
+    const lines = [`*Your P&L* (${profile.id})`, ""];
+    if (ts[0]) lines.push(`Equity: *${Math.round(Number(ts[0].equity))}* (drawdown ${(Number(ts[0].drawdown_pct) * 100).toFixed(1)}%)`);
+    lines.push(`Realized: *${Number(c.realized) >= 0 ? "+" : ""}${Math.round(Number(c.realized))}* over ${c.n} closed`);
+    lines.push(`Win rate: ${wr} · ${open[0].n} open`);
+    if (Number(c.n) === 0 && Number(open[0].n) === 0) lines.push("", "_No tracked trades yet. When you act on a signal, log it with /took._");
     return lines.join("\n");
   }
 

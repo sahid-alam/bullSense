@@ -1,7 +1,7 @@
 name: hype-sweep
 on:
   schedule:
-    - cron: "0 14-20 * * 1-5"  # hourly 10:00–16:00 ET (14:00–20:00 UTC, EDT)
+    - cron: "0 14-21 * * 1-5"   # hourly; covers US market hours in BOTH EDT & EST (DST-robust)
   workflow_dispatch: {}
 jobs:
   hype:

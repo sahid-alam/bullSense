@@ -1,7 +1,7 @@
 name: nightly
 on:
   schedule:
-    - cron: "30 22 * * 1-5"   # 17:30 ET (22:30 UTC, EDT) — adjust for EST in winter
+    - cron: "30 22 * * 1-5"   # 18:30 EDT / 17:30 EST — after close in BOTH seasons
   workflow_dispatch: {}
 jobs:
   nightly:

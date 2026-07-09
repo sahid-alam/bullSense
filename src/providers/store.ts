@@ -229,3 +229,63 @@ export async function squeezeCandidates(settlementDate: string, minDtc: number, 
     { method: "GET", headers: { Prefer: "return=representation" } },
   ) ?? [];
 }
+
+// ===== paper fund / positions (P1) =====
+
+export async function getProfile(id: string): Promise<{ id: string; equity: number; risk_prefs: any } | null> {
+  const rows = await rest(`profiles?select=id,equity,risk_prefs&id=eq.${id}`, { method: "GET", headers: { Prefer: "return=representation" } });
+  return rows?.[0] ?? null;
+}
+
+export async function latestTreasuryState(profileId: string): Promise<{ equity: number; peak_equity: number } | null> {
+  const rows = await rest(`treasury_state?select=equity,peak_equity&profile_id=eq.${profileId}&order=date.desc&limit=1`, { method: "GET", headers: { Prefer: "return=representation" } });
+  return rows?.[0] ?? null;
+}
+
+export async function upsertTreasuryState(s: { profile_id: string; date: string; equity: number; peak_equity: number; drawdown_pct: number; heat_pct: number; regime: string; sizing_multiplier: number }): Promise<void> {
+  await rest("treasury_state?on_conflict=profile_id,date", { method: "POST", body: JSON.stringify([s]), preferUpsert: true });
+}
+
+/** Live, non-suppressed signals that have had their entry filled but no engine position yet. */
+export async function signalsNeedingPaperPosition(): Promise<Array<{ id: number; symbol: string; entry_price: number; invalidation_price: number; conviction: number; regime_at_trigger: string; entry_at: string }>> {
+  return await rest(
+    `signals?select=id,symbol,entry_price,invalidation_price,conviction,regime_at_trigger,triggered_at&status=eq.open&regime_suppressed=eq.false&entry_price=not.is.null`,
+    { method: "GET", headers: { Prefer: "return=representation" } },
+  ).then((rows: any[]) => (rows ?? []).map((r) => ({ ...r, entry_at: r.triggered_at }))) ?? [];
+}
+
+export async function enginePositionExists(signalId: number): Promise<boolean> {
+  const rows = await rest(`positions?select=id&profile_id=eq.engine&signal_id=eq.${signalId}`, { method: "GET", headers: { Prefer: "return=representation" } });
+  return (rows?.length ?? 0) > 0;
+}
+
+export async function insertPosition(p: { profile_id: string; signal_id: number; symbol: string; qty: number; entry_price: number; entry_at: string; risk_budget_pct: number; invalidation_price: number }): Promise<void> {
+  await rest("positions", { method: "POST", body: JSON.stringify([{ ...p, side: "long", status: "open" }]) });
+}
+
+export async function getOpenPositions(profileId: string): Promise<Array<{ id: number; signal_id: number; symbol: string; qty: number; entry_price: number; invalidation_price: number; risk_budget_pct: number }>> {
+  return await rest(`positions?select=id,signal_id,symbol,qty,entry_price,invalidation_price,risk_budget_pct&profile_id=eq.${profileId}&status=eq.open`, { method: "GET", headers: { Prefer: "return=representation" } }) ?? [];
+}
+
+/** Signal ids that have closed (status like closed_*), for closing their paper positions. */
+export async function closedSignalOutcomes(signalIds: number[]): Promise<Record<number, { status: string; exit_close: number | null }>> {
+  if (signalIds.length === 0) return {};
+  const idList = signalIds.join(",");
+  const sigs = await rest(`signals?select=id,status&id=in.(${idList})&status=like.closed_*`, { method: "GET", headers: { Prefer: "return=representation" } }) ?? [];
+  const out: Record<number, { status: string; exit_close: number | null }> = {};
+  for (const s of sigs) {
+    // exit price = the last mark's close for that signal
+    const marks = await rest(`signal_marks?select=close,mark_date&signal_id=eq.${s.id}&order=mark_date.desc&limit=1`, { method: "GET", headers: { Prefer: "return=representation" } });
+    out[s.id] = { status: s.status, exit_close: marks?.[0]?.close ?? null };
+  }
+  return out;
+}
+
+export async function closePosition(id: number, exitPrice: number, realizedPnl: number): Promise<void> {
+  await rest(`positions?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ status: "closed", closed_at: new Date().toISOString(), realized_pnl: realizedPnl }) });
+}
+
+export async function sumRealizedPnl(profileId: string): Promise<number> {
+  const rows = await rest(`positions?select=realized_pnl&profile_id=eq.${profileId}&status=eq.closed`, { method: "GET", headers: { Prefer: "return=representation" } });
+  return (rows ?? []).reduce((a: number, r: any) => a + (Number(r.realized_pnl) || 0), 0);
+}

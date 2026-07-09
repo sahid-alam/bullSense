@@ -1,7 +1,7 @@
 name: briefing
 on:
   schedule:
-    - cron: "15 23 * * 1-5"   # 18:15 ET
+    - cron: "15 23 * * 1-5"   # 19:15 EDT / 18:15 EST — evening in BOTH seasons
   workflow_dispatch: {}
 jobs:
   briefing:

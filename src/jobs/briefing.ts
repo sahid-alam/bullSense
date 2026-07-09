@@ -25,9 +25,16 @@ async function main() {
   }
 
   const regime = await getLatestRegime();
-  const profiles = (await getProfiles()).filter((p) => p.telegram_chat_id);
   const health = await getJobHealth(1);
   const failures = health.filter((h) => h.status === "error").length;
+
+  // one briefing per human: if several profiles share a chat id, brief only the first
+  const seen = new Set<string>();
+  const profiles = (await getProfiles()).filter((p) => {
+    if (!p.telegram_chat_id || seen.has(p.telegram_chat_id)) return false;
+    seen.add(p.telegram_chat_id);
+    return true;
+  });
 
   let sent = 0;
   for (const profile of profiles) {

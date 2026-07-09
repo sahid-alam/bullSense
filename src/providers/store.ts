@@ -179,3 +179,27 @@ export async function updateSignal(id: number, patch: Record<string, any>): Prom
 export async function insertSignalMark(m: { signal_id: number; mark_date: string; close: number; return_pct: number; spy_return_pct: number }): Promise<void> {
   await rest("signal_marks?on_conflict=signal_id,mark_date", { method: "POST", body: JSON.stringify([m]), preferUpsert: true });
 }
+
+/** Data-quality + coverage stats for the weekly health report. */
+export async function weeklyStats(): Promise<{ sentimentRows: number; hypeTickers: number; jobRuns7d: number; jobErrors7d: number; openSignals: number; closedSignals: number }> {
+  const since = new Date(Date.now() - 7 * 86400_000).toISOString();
+  const count = async (path: string) => {
+    const rows = await rest(path, { method: "GET", headers: { Prefer: "return=representation", Range: "0-0", "Range-Unit": "items" } });
+    return Array.isArray(rows) ? rows.length : 0;
+  };
+  // use head requests with count for accuracy
+  const countExact = async (path: string): Promise<number> => {
+    const b = base(); if (!b) return 0;
+    const res = await fetch(`${b.url}/${path}`, { method: "HEAD", headers: { apikey: b.key, Authorization: `Bearer ${b.key}`, Prefer: "count=exact" } });
+    const cr = res.headers.get("content-range"); // e.g. "0-24/25" or "*/25"
+    return cr ? Number(cr.split("/")[1]) || 0 : 0;
+  };
+  return {
+    sentimentRows: await countExact(`sentiment_snapshots?captured_at=gte.${since}`),
+    hypeTickers: (await rest(`sentiment_snapshots?select=symbol&captured_at=gte.${since}`, { method: "GET", headers: { Prefer: "return=representation" } }) ?? []).reduce((s: Set<string>, r: any) => s.add(r.symbol), new Set()).size,
+    jobRuns7d: await countExact(`job_runs?started_at=gte.${since}`),
+    jobErrors7d: await countExact(`job_runs?started_at=gte.${since}&status=eq.error`),
+    openSignals: await countExact(`signals?status=in.(pending_entry,open)`),
+    closedSignals: await countExact(`signals?status=like.closed_*`),
+  };
+}

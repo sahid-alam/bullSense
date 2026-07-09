@@ -26,6 +26,8 @@ const HELP = [
   "/book — your positions vs their stops",
   "/took `SYMBOL QTY [ENTRY]` — record that you traded a signal (tracks your P&L)",
   "/pnl — your realized P&L, win rate, and open positions",
+  "/calibration — does higher conviction actually win more?",
+  "/overrides — does overruling the system help or hurt?",
   "/add `SYM QTY COST [STOP]` — log a position you already own (Position Intake)",
   "/stop `SYMBOL PRICE` — set an invalidation (e.g. `/stop CUPID.NS 195`)",
   "/remove `SYMBOL` — drop a position from your book (e.g. after selling)",
@@ -58,6 +60,21 @@ function intakeVerdict(equity: number, qty: number, cost: number, stop: number, 
   const maxQty = Math.floor((equity * riskMax) / Math.max(stopDist, 1e-9));
   const ratio = qty / Math.max(maxQty, 1);
   return { atRiskPct, maxQty, ratio, stopDist };
+}
+
+/** Treasury-suggested share count (mirrors src/lib/treasury.ts sizePosition core:
+ *  conviction-scaled risk within band, capped by capital %). */
+function treasurySuggestedQty(equity: number, conviction: number, entry: number, stop: number, prefs: any): number {
+  const rmin = Number(prefs?.per_trade_risk_min ?? 0.01);
+  const rmax = Number(prefs?.per_trade_risk_max ?? 0.025);
+  const maxPos = Number(prefs?.max_position_pct ?? 0.25);
+  const stopDist = entry - stop;
+  if (stopDist <= 0) return 0;
+  const c = Math.min(100, Math.max(0, conviction)) / 100;
+  const riskPct = rmin + c * (rmax - rmin);
+  const byRisk = Math.floor((equity * riskPct) / stopDist);
+  const byCapital = Math.floor((equity * maxPos) / entry);
+  return Math.max(0, Math.min(byRisk, byCapital));
 }
 
 async function handle(text: string, chatId: number): Promise<string> {
@@ -168,13 +185,63 @@ async function handle(text: string, chatId: number): Promise<string> {
     if (!isFinite(entry) || entry <= 0) return "ENTRY must be a positive number (or the signal must have a filled entry).";
 
     const riskBudgetPct = (Math.abs(entry - Number(s.invalidation_price)) * qty) / profile.equity;
-    await sql`
+    const posRows = await sql`
       insert into positions (profile_id, signal_id, symbol, side, qty, entry_price, entry_at, risk_budget_pct, invalidation_price, status)
-      values (${profile.id}, ${s.id}, ${symbol}, 'long', ${qty}, ${entry}, now(), ${riskBudgetPct}, ${Number(s.invalidation_price)}, 'open')`;
+      values (${profile.id}, ${s.id}, ${symbol}, 'long', ${qty}, ${entry}, now(), ${riskBudgetPct}, ${Number(s.invalidation_price)}, 'open')
+      returning id`;
+
+    // Override receipt: did you size materially off the Treasury's suggestion?
+    const suggested = treasurySuggestedQty(Number(profile.equity), Number(s.conviction), entry, Number(s.invalidation_price), profile.risk_prefs);
+    let overrideNote = "";
+    if (suggested > 0 && Math.abs(qty - suggested) / suggested > 0.5) {
+      const kind = qty > suggested ? "oversized" : "undersized";
+      await sql`
+        insert into overrides (profile_id, position_id, override_type, system_recommendation, actual_action)
+        values (${profile.id}, ${posRows[0].id}, ${kind}, ${'Treasury size ' + suggested + ' shares'}, ${'took ' + qty + ' shares'})`;
+      overrideNote = `\n⚠️ *${kind.toUpperCase()}*: Treasury suggested ~${suggested} shares; you took ${qty}. Logged — /overrides tracks whether this helps or hurts.`;
+    }
 
     return `✅ Recorded: you took *${symbol}* — ${qty} @ ${entry} (${profile.id}).\n` +
-      `Risk to invalidation ${s.invalidation_price}: ~${(Math.abs(entry - Number(s.invalidation_price)) * qty).toFixed(0)} (${(riskBudgetPct * 100).toFixed(1)}% of equity).\n` +
+      `Risk to invalidation ${s.invalidation_price}: ~${(Math.abs(entry - Number(s.invalidation_price)) * qty).toFixed(0)} (${(riskBudgetPct * 100).toFixed(1)}% of equity).${overrideNote}\n` +
       `Your P&L on this trade is now tracked vs the engine's — see /pnl.`;
+  }
+
+  if (cmd === "/calibration") {
+    const closed = await sql`
+      select
+        case when conviction < 55 then '40-55' when conviction < 65 then '55-65'
+             when conviction < 75 then '65-75' else '75-100' end as band,
+        count(*) as n,
+        count(*) filter (where m.ret > 0) as wins,
+        round(avg(m.ret)::numeric, 1) as avg_ret
+      from signals s
+      join lateral (select return_pct as ret from signal_marks where signal_id = s.id order by mark_date desc limit 1) m on true
+      where s.status like 'closed_%'
+      group by 1 order by 1`;
+    if (closed.length === 0) return "*Calibration*\n\n_No closed signals yet. This table fills as signals resolve — it will show whether higher conviction actually means a higher win rate._";
+    const lines = ["*Calibration* — conviction band → actual win rate", ""];
+    for (const r of closed) {
+      const wr = Number(r.n) > 0 ? Math.round((Number(r.wins) / Number(r.n)) * 100) : 0;
+      lines.push(`conviction *${r.band}*: ${wr}% win (${r.wins}/${r.n}), avg ${r.avg_ret}%`);
+    }
+    lines.push("", "_Well-calibrated = win rate rises with conviction band._");
+    return lines.join("\n");
+  }
+
+  if (cmd === "/overrides") {
+    const profile = await primaryProfileFor(chatId);
+    if (!profile) return "No profile found for you.";
+    const rows = await sql`
+      select override_type, count(*) as n, coalesce(sum(outcome_pnl),0) as pnl,
+        count(*) filter (where outcome_pnl is null) as pending
+      from overrides where profile_id = ${profile.id} group by 1 order by 1`;
+    if (rows.length === 0) return "*Override receipts*\n\n_None yet. When you size off the Treasury's suggestion or overrule an exit, it's logged here — and scored, so you get an honest answer on whether your discretion helps or hurts._";
+    const lines = ["*Override receipts* — does overruling the system pay?", ""];
+    for (const r of rows) {
+      const resolved = Number(r.n) - Number(r.pending);
+      lines.push(`*${r.override_type}*: ${r.n} total${resolved > 0 ? `, scored P&L ${Number(r.pnl) >= 0 ? "+" : ""}${Math.round(Number(r.pnl))}` : ""}${Number(r.pending) > 0 ? ` (${r.pending} still open)` : ""}`);
+    }
+    return lines.join("\n");
   }
 
   if (cmd === "/pnl") {

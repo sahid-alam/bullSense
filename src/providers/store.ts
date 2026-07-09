@@ -310,3 +310,45 @@ export async function latestSignalForSymbol(symbol: string): Promise<{ id: numbe
   const rows = await rest(`signals?select=id,invalidation_price,entry_price,conviction&symbol=eq.${encodeURIComponent(symbol)}&order=triggered_at.desc&limit=1`, { method: "GET", headers: { Prefer: "return=representation" } });
   return rows?.[0] ?? null;
 }
+
+// ===== calibration + overrides (P1) =====
+
+/** Calibration buckets: closed signals grouped by conviction band, with actual win rate.
+ *  A signal "wins" if its final mark return_pct > 0. Reveals whether conviction is meaningful. */
+export async function calibrationBuckets(): Promise<Array<{ band: string; n: number; winRate: number | null; avgReturn: number | null }>> {
+  // closed signals + their final (latest) mark return
+  const closed = await rest(`signals?select=id,conviction,status&status=like.closed_*`, { method: "GET", headers: { Prefer: "return=representation" } }) ?? [];
+  const bands = [
+    { band: "40–55", lo: 0, hi: 55 },
+    { band: "55–65", lo: 55, hi: 65 },
+    { band: "65–75", lo: 65, hi: 75 },
+    { band: "75–100", lo: 75, hi: 101 },
+  ];
+  const out = bands.map((b) => ({ band: b.band, n: 0, wins: 0, retSum: 0 }));
+  for (const sig of closed) {
+    const marks = await rest(`signal_marks?select=return_pct&signal_id=eq.${sig.id}&order=mark_date.desc&limit=1`, { method: "GET", headers: { Prefer: "return=representation" } });
+    const ret = marks?.[0]?.return_pct;
+    if (ret == null) continue;
+    const b = out.find((_, i) => sig.conviction >= bands[i].lo && sig.conviction < bands[i].hi);
+    if (!b) continue;
+    b.n++; b.retSum += Number(ret); if (Number(ret) > 0) b.wins++;
+  }
+  return out.map((b) => ({ band: b.band, n: b.n, winRate: b.n ? b.wins / b.n : null, avgReturn: b.n ? b.retSum / b.n : null }));
+}
+
+export async function insertOverride(o: { profile_id: string; position_id: number | null; override_type: string; system_recommendation: string; actual_action: string; rationale?: string }): Promise<void> {
+  await rest("overrides", { method: "POST", body: JSON.stringify([o]) });
+}
+
+/** Score an override when its position closes: marginal P&L of the sizing deviation =
+ *  (actualQty − suggestedQty) × (exit − entry). Positive = the deviation added money. */
+export async function scoreOverrideForPosition(positionId: number, actualQty: number, entryPrice: number, exitPrice: number): Promise<void> {
+  const rows = await rest(`overrides?select=id,system_recommendation,outcome_pnl&position_id=eq.${positionId}&outcome_pnl=is.null`, { method: "GET", headers: { Prefer: "return=representation" } });
+  for (const o of rows ?? []) {
+    const m = String(o.system_recommendation).match(/(\d+)/);
+    if (!m) continue;
+    const suggested = Number(m[1]);
+    const marginal = (actualQty - suggested) * (exitPrice - entryPrice);
+    await rest(`overrides?id=eq.${o.id}`, { method: "PATCH", body: JSON.stringify({ outcome_pnl: marginal }) });
+  }
+}

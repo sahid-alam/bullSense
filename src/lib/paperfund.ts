@@ -12,7 +12,7 @@ import {
   getProfile, latestTreasuryState, upsertTreasuryState,
   signalsNeedingPaperPosition, enginePositionExists, insertPosition,
   getOpenPositions, closedSignalOutcomes, closePosition, sumRealizedPnl,
-  getLatestRegime, getProfilesWithPositions,
+  getLatestRegime, getProfilesWithPositions, scoreOverrideForPosition,
 } from "../providers/store.js";
 import { sizePosition, type Regime, type RiskPrefs } from "./treasury.js";
 
@@ -33,6 +33,8 @@ async function settleProfile(profileId: string, startingEquity: number, regime: 
     const o = p.signal_id != null ? outcomes[p.signal_id] : undefined;
     if (!o || o.exit_close == null) continue;
     await closePosition(p.id, o.exit_close, p.qty * (o.exit_close - p.entry_price));
+    // score any override attached to this position (sizing deviation P&L)
+    if (profileId !== "engine") await scoreOverrideForPosition(p.id, p.qty, p.entry_price, o.exit_close);
     report.closed++;
   }
 

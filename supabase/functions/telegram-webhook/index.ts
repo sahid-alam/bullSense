@@ -30,9 +30,20 @@ const HELP = [
   "/help — this list",
 ].join("\n");
 
+async function isOperator(chatId: number): Promise<boolean> {
+  const rows = await sql`select 1 from profiles where telegram_chat_id = ${String(chatId)} and is_operator = true limit 1`;
+  return rows.length > 0;
+}
+
 async function handle(text: string, chatId: number): Promise<string> {
   const [cmdRaw, ...args] = text.trim().split(/\s+/);
   const cmd = cmdRaw.toLowerCase().replace(/@\w+$/, "");
+
+  // Every command exposes engine state or mutates it — restrict to known operators.
+  // Unknown chats get a flat refusal (no data, no engine control, no /help enumeration).
+  if (!(await isOperator(chatId))) {
+    return "This is a private analyst. Access is restricted to its operators.";
+  }
 
   if (cmd === "/start" || cmd === "/help") return HELP;
 
@@ -108,10 +119,12 @@ async function handle(text: string, chatId: number): Promise<string> {
 Deno.serve(async (req) => {
   const token = await cfg("telegram_bot_token");
   const secret = await cfg("telegram_webhook_secret");
-  if (!token) return new Response("no token", { status: 500 });
+  if (!token) return new Response("not configured", { status: 500 });
 
-  // verify the request really came from Telegram
-  if (secret && req.headers.get("X-Telegram-Bot-Api-Secret-Token") !== secret) {
+  // Fail CLOSED: if the webhook secret is missing, refuse to serve rather than
+  // silently skipping verification. Then require the header to match exactly.
+  if (!secret) return new Response("webhook secret not configured", { status: 500 });
+  if (req.headers.get("X-Telegram-Bot-Api-Secret-Token") !== secret) {
     return new Response("forbidden", { status: 403 });
   }
 
@@ -126,7 +139,9 @@ Deno.serve(async (req) => {
     const out = await handle(text, chatId);
     await reply(token, chatId, out);
   } catch (e) {
-    await reply(token, chatId, `⚠️ Error: ${String(e).slice(0, 200)}`);
+    // Log detail server-side; never reflect DB/internal error text to the user.
+    console.error("handler error:", e);
+    await reply(token, chatId, "⚠️ Something went wrong handling that. Try again shortly.");
   }
   return new Response("ok");
 });

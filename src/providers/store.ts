@@ -115,3 +115,67 @@ export async function getJobHealth(days = 1): Promise<Array<{ job: string; statu
     method: "GET", headers: { Prefer: "return=representation" },
   }) ?? [];
 }
+
+export interface GenomeRow { id: string; family: string; version: number; definition: any; status: string }
+
+export async function getLiveGenomes(family?: string): Promise<GenomeRow[]> {
+  const fam = family ? `&family=eq.${family}` : "";
+  return await rest(`genomes?select=id,family,version,definition,status&status=eq.live${fam}`, {
+    method: "GET", headers: { Prefer: "return=representation" },
+  }) ?? [];
+}
+
+/** Recent sentiment history for a symbol/source, newest first (for velocity baselines). */
+export async function getSentimentHistory(symbol: string, source: string, sinceIso: string): Promise<Array<{ captured_at: string; mentions_24h: number | null; bullish_ratio: number | null }>> {
+  return await rest(
+    `sentiment_snapshots?select=captured_at,mentions_24h,bullish_ratio&symbol=eq.${encodeURIComponent(symbol)}&source=eq.${source}&captured_at=gte.${sinceIso}&order=captured_at.desc`,
+    { method: "GET", headers: { Prefer: "return=representation" } },
+  ) ?? [];
+}
+
+/** Distinct symbols seen in the sentiment archive in the last N hours (the hunt list). */
+export async function getActiveHypeSymbols(hours: number): Promise<string[]> {
+  const since = new Date(Date.now() - hours * 3600_000).toISOString();
+  const rows = await rest(
+    `sentiment_snapshots?select=symbol&source=eq.apewisdom&captured_at=gte.${since}`,
+    { method: "GET", headers: { Prefer: "return=representation" } },
+  );
+  return [...new Set((rows ?? []).map((r: any) => r.symbol))] as string[];
+}
+
+/** Has this genome already fired on this symbol within `dedupeDays`? */
+export async function signalExistsWithin(genomeId: string, symbol: string, dedupeDays: number): Promise<boolean> {
+  const since = new Date(Date.now() - dedupeDays * 86400_000).toISOString();
+  const rows = await rest(
+    `signals?select=id&genome_id=eq.${genomeId}&symbol=eq.${encodeURIComponent(symbol)}&triggered_at=gte.${since}`,
+    { method: "GET", headers: { Prefer: "return=representation" } },
+  );
+  return (rows?.length ?? 0) > 0;
+}
+
+export async function insertSignal(sig: {
+  genome_id: string; symbol: string; triggered_at: string; trading_date: string;
+  conviction: number; evidence: object; thesis_md: string | null; invalidation_price: number;
+  time_stop_date: string; regime_at_trigger: string; regime_suppressed: boolean;
+}): Promise<number | null> {
+  const rows = await rest("signals", {
+    method: "POST", body: JSON.stringify([sig]), headers: { Prefer: "return=representation" },
+  });
+  return rows?.[0]?.id ?? null;
+}
+
+/** Open signals awaiting entry-price fill or daily marking. */
+export async function getOpenSignals(): Promise<Array<{ id: number; symbol: string; triggered_at: string; trading_date: string; invalidation_price: number; time_stop_date: string; entry_price: number | null; status: string }>> {
+  return await rest(
+    `signals?select=id,symbol,triggered_at,trading_date,invalidation_price,time_stop_date,entry_price,status&status=in.(pending_entry,open)`,
+    { method: "GET", headers: { Prefer: "return=representation" } },
+  ) ?? [];
+}
+
+export async function updateSignal(id: number, patch: Record<string, any>): Promise<void> {
+  await rest(`signals?id=eq.${id}`, { method: "PATCH", body: JSON.stringify(patch) });
+}
+
+export async function insertSignalMark(m: { signal_id: number; mark_date: string; close: number; return_pct: number; spy_return_pct: number }): Promise<void> {
+  await rest("signal_marks?on_conflict=signal_id,mark_date", { method: "POST", body: JSON.stringify([m]), preferUpsert: true });
+}

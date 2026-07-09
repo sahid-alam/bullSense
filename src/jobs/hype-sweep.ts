@@ -5,6 +5,7 @@
  * signal logic can honestly fire. Every hour archived now is data nobody can buy later.
  */
 import { storeAvailable, insertSentimentSnapshots, logJobRun, routineEnabled, touchRoutine } from "../providers/store.js";
+import { runHypeScout } from "../lib/scout.js";
 
 const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36";
 
@@ -70,10 +71,16 @@ async function main() {
   }
 
   await insertSentimentSnapshots(snaps);
+
+  // archive first (above), THEN hunt — the Scout reads the freshly-updated archive
+  const scout = await runHypeScout();
+
   const asOf = capturedAt.slice(0, 10);
-  await logJobRun("hype-sweep", asOf, "ok", started, { archived: snaps.length, ...bySource });
-  await touchRoutine("hype-sweep", `archived ${snaps.length} rows (${Object.entries(bySource).map(([k, v]) => `${k}:${v}`).join(", ")})`);
-  console.log(`hype-sweep: archived ${snaps.length} rows`, bySource);
+  await logJobRun("hype-sweep", asOf, "ok", started, { archived: snaps.length, ...bySource, scout });
+  await touchRoutine("hype-sweep",
+    `archived ${snaps.length} · evaluated ${scout.evaluated}, velocity-ready ${scout.velocityReady}, fired ${scout.fired}` +
+    (scout.note ? ` (${scout.note})` : ""));
+  console.log(`hype-sweep: archived ${snaps.length} rows`, bySource, "| scout:", JSON.stringify(scout));
 }
 
 main().catch((err) => {

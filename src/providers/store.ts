@@ -77,8 +77,8 @@ export async function getBook(profileId: string): Promise<Array<{ symbol: string
   }) ?? [];
 }
 
-export async function getLatestRegime(): Promise<{ date: string; score: number; regime: string; components: any } | null> {
-  const rows = await rest("regime_scores?select=date,score,regime,components&order=date.desc&limit=1", {
+export async function getLatestRegime(): Promise<{ date: string; score: number; regime: string; components: any; narrative: string | null } | null> {
+  const rows = await rest("regime_scores?select=date,score,regime,components,narrative&order=date.desc&limit=1", {
     method: "GET", headers: { Prefer: "return=representation" },
   });
   return rows?.[0] ?? null;

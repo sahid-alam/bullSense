@@ -8,6 +8,7 @@ import { computeRadar, sma, applyHysteresis, bandRegime, type Regime } from "../
 import { storeAvailable, upsertRegimeScore, getRecentRegimes, logJobRun, routineEnabled, touchRoutine } from "../providers/store.js";
 import { runWatchtower } from "../lib/watchtower.js";
 import { runScorer } from "../lib/scorer.js";
+import { complete } from "../providers/llm.js";
 
 const SECTOR_ETFS = ["XLK", "XLF", "XLV", "XLE", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE", "XLC"];
 
@@ -77,11 +78,37 @@ async function main() {
     return;
   }
 
+  // "What changed today" narrative — routine tier (Groq free). Generated once, then frozen.
+  // Components are pre-interpreted into qualitative bands so the model can't misread
+  // our 0-100 "calmness/health percentile" encoding as raw levels.
+  let narrative: string | null = null;
+  try {
+    const band = (v: number, kind: "generic" | "vix") => {
+      // higher score = calmer/healthier in every component
+      if (kind === "vix") return v >= 66 ? "low/calm" : v >= 40 ? "moderately elevated" : "high/fearful";
+      return v >= 66 ? "strong" : v >= 40 ? "middling" : "weak";
+    };
+    const c = radar.components;
+    const deltaTxt = prevScore != null
+      ? `Overall score ${radar.score} vs ${prevScore} yesterday (${radar.score >= prevScore ? "steady/up" : "down"}).`
+      : "No prior day on record.";
+    narrative = await complete(
+      "routine",
+      "You are a terse market-risk analyst. You are given today's regime read with each factor already interpreted qualitatively. Write exactly 2 plain sentences: the overall posture, and the single most notable tension or feature. No preamble, no bullet points, no numbers, no hedging.",
+      `Regime: ${effectiveRegime.toUpperCase()}. ${deltaTxt} ` +
+      `Index trend is ${band(c.trend, "generic")}. Credit conditions are ${band(c.credit, "generic")}. ` +
+      `Market breadth is ${band(c.breadth, "generic")} (${above} of 11 sectors above their 50-day average). ` +
+      `Volatility (VIX) is ${band(c.vix_level, "vix")}; the VIX term structure is ${band(c.vix_term, "vix")}.`,
+      200,
+    );
+  } catch (e) { console.error("narrative generation failed (non-fatal):", e); }
+
   await upsertRegimeScore({
     date: asOf,
     score: radar.score,
     regime: effectiveRegime,
     components: radar.components,
+    narrative,
     prev_score: prevScore,
   });
 

@@ -48,6 +48,7 @@ async function main() {
       lines.push(`Score *${regime.score}/100* → ${regimeLabel(regime.regime)}`);
       lines.push(`Trend ${c.trend} · Credit ${c.credit} · Breadth ${c.breadth} · VIX ${c.vix_level}`);
       lines.push(`Heat ceiling: *${regime.regime === "risk_on" ? "20%" : regime.regime === "neutral" ? "12%" : "5%"}*`);
+      if (regime.narrative) lines.push(`_${regime.narrative.trim()}_`);
       lines.push("");
     }
 

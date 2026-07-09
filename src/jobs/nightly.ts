@@ -6,6 +6,7 @@
 import { fetchDailyBars } from "../providers/prices.js";
 import { computeRadar, sma, applyHysteresis, bandRegime, type Regime } from "../lib/radar.js";
 import { storeAvailable, upsertRegimeScore, getRecentRegimes, logJobRun, routineEnabled, touchRoutine } from "../providers/store.js";
+import { runWatchtower } from "../lib/watchtower.js";
 
 const SECTOR_ETFS = ["XLK", "XLF", "XLV", "XLE", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE", "XLC"];
 
@@ -82,9 +83,14 @@ async function main() {
     components: radar.components,
     prev_score: prevScore,
   });
-  await logJobRun("nightly", asOf, "ok", started, out);
-  await touchRoutine("nightly", `Radar ${radar.score} → ${effectiveRegime} (${out.breadth_detail})`);
+
+  // Watchtower sweep — every book position checked against its plan
+  const watch = await runWatchtower();
+
+  await logJobRun("nightly", asOf, "ok", started, { ...out, watchtower: watch });
+  await touchRoutine("nightly", `Radar ${radar.score} → ${effectiveRegime} · Watchtower ${watch.checked} positions, ${watch.events.length} events`);
   console.log("Radar persisted:", JSON.stringify(out));
+  console.log("Watchtower:", JSON.stringify(watch));
 }
 
 main().catch(async (err) => {

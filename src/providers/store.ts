@@ -76,3 +76,42 @@ export async function getBook(profileId: string): Promise<Array<{ symbol: string
     method: "GET", headers: { Prefer: "return=representation" },
   }) ?? [];
 }
+
+export async function getLatestRegime(): Promise<{ date: string; score: number; regime: string; components: any } | null> {
+  const rows = await rest("regime_scores?select=date,score,regime,components&order=date.desc&limit=1", {
+    method: "GET", headers: { Prefer: "return=representation" },
+  });
+  return rows?.[0] ?? null;
+}
+
+export async function insertBookEvent(ev: {
+  profile_id: string; symbol: string; kind: string; triage: "fyi" | "look" | "decide"; summary: string; source_ref?: string;
+}): Promise<void> {
+  await rest("book_events", { method: "POST", body: JSON.stringify([ev]) });
+}
+
+/** Count same-kind events for this symbol in the last N days (spam guard). */
+export async function recentEventCount(profileId: string, symbol: string, kind: string, days: number): Promise<number> {
+  const since = new Date(Date.now() - days * 86400_000).toISOString();
+  const rows = await rest(
+    `book_events?select=id&profile_id=eq.${profileId}&symbol=eq.${encodeURIComponent(symbol)}&kind=eq.${kind}&detected_at=gte.${since}`,
+    { method: "GET", headers: { Prefer: "return=representation" } },
+  );
+  return rows?.length ?? 0;
+}
+
+export async function insertSentimentSnapshots(rows: Array<{
+  symbol: string; captured_at: string; source: string; mentions_24h: number | null; rank: number | null; bullish_ratio: number | null;
+}>): Promise<void> {
+  if (rows.length === 0) return;
+  await rest("sentiment_snapshots?on_conflict=symbol,captured_at,source", {
+    method: "POST", body: JSON.stringify(rows), preferUpsert: true,
+  });
+}
+
+export async function getJobHealth(days = 1): Promise<Array<{ job: string; status: string }>> {
+  const since = new Date(Date.now() - days * 86400_000).toISOString();
+  return await rest(`job_runs?select=job,status&started_at=gte.${since}&order=started_at.desc`, {
+    method: "GET", headers: { Prefer: "return=representation" },
+  }) ?? [];
+}

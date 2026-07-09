@@ -59,5 +59,16 @@ console.log("\nCupid intake verdict:", JSON.stringify(intake, null, 2));
 check("Intake: reports % of equity at risk", intake.atRiskPct > 0.012 && intake.atRiskPct < 0.015,
   `${(intake.atRiskPct * 100).toFixed(2)}% at risk to ₹195 stop`);
 
+// --- Capital-concentration cap: tight stop must not deploy >25% of equity ---
+const tightStop = sizePosition({
+  equity: 100_000, peakEquity: 100_000, regime: "risk_on",
+  conviction: 63, entryPrice: 15.82, invalidationPrice: 15.50, // 0.32 stop → huge share count
+  currentHeatPct: 0, prefs,
+});
+console.log("\nTight-stop replay (BPYPM delivery test):", JSON.stringify(tightStop));
+check("Capital cap: qty capped so capital ≤ 25% of equity",
+  tightStop.qty * 15.82 <= 25_000 + 20, `capital=₹${(tightStop.qty * 15.82).toFixed(0)}`);
+check("Capital cap: reason notes the cap", tightStop.reason.includes("capital-capped"), tightStop.reason);
+
 console.log(failures === 0 ? "\nALL TESTS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

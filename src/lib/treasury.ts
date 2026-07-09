@@ -13,7 +13,10 @@ export interface RiskPrefs {
   heat_cap_risk_off: number;  // 0.05
   dd_throttle_half: number;   // 0.10
   dd_throttle_pause: number;  // 0.18
+  max_position_pct?: number;  // 0.25 — cap on CAPITAL deployed in one position
 }
+
+const DEFAULT_MAX_POSITION_PCT = 0.25;
 
 export interface SizingInput {
   equity: number;
@@ -79,12 +82,27 @@ export function sizePosition(inp: SizingInput): SizingResult {
   }
 
   const riskAmount = equity * riskPct;
-  const qty = Math.floor(riskAmount / stopDistance);
+  let qty = Math.floor(riskAmount / stopDistance);
   if (qty < 1) {
     return { approved: false, reason: "risk budget too small for one share at this stop distance", qty: 0, riskBudgetPct: riskPct, riskBudgetAmount: riskAmount, sizingMultiplier: mult };
   }
 
-  return { approved: true, reason: "ok", qty, riskBudgetPct: riskPct, riskBudgetAmount: riskAmount, sizingMultiplier: mult };
+  // Capital-concentration cap: a very tight stop yields a huge share count for the
+  // same rupee risk (e.g. a 2%-wide stop → ~50x leverage into one name). Cap the
+  // CAPITAL deployed so a gap-through-the-stop can't blow past the risk budget.
+  const maxPosPct = prefs.max_position_pct ?? DEFAULT_MAX_POSITION_PCT;
+  const maxQtyByCapital = Math.floor((equity * maxPosPct) / inp.entryPrice);
+  let capitalCapped = false;
+  if (qty > maxQtyByCapital) { qty = maxQtyByCapital; capitalCapped = true; }
+  if (qty < 1) {
+    return { approved: false, reason: "capital cap too small for one share at this price", qty: 0, riskBudgetPct: riskPct, riskBudgetAmount: riskAmount, sizingMultiplier: mult };
+  }
+
+  return {
+    approved: true,
+    reason: capitalCapped ? `ok (capital-capped at ${(maxPosPct * 100).toFixed(0)}% of equity)` : "ok",
+    qty, riskBudgetPct: riskPct, riskBudgetAmount: riskAmount, sizingMultiplier: mult,
+  };
 }
 
 /** Position-Intake ("rescue mode"): verdict on a position bought OUTSIDE the system. */

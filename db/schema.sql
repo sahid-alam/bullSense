@@ -17,7 +17,8 @@ create table if not exists profiles (
     "heat_cap_neutral": 0.12,
     "heat_cap_risk_off": 0.05,
     "dd_throttle_half": 0.10,
-    "dd_throttle_pause": 0.18
+    "dd_throttle_pause": 0.18,
+    "max_position_pct": 0.25
   }'::jsonb
 );
 

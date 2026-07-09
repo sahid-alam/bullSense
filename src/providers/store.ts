@@ -203,3 +203,29 @@ export async function weeklyStats(): Promise<{ sentimentRows: number; hypeTicker
     closedSignals: await countExact(`signals?status=like.closed_*`),
   };
 }
+
+export async function upsertShortInterest(rows: Array<{ symbol: string; settlement_date: string; si_shares: number; days_to_cover: number }>): Promise<void> {
+  if (rows.length === 0) return;
+  // chunk to keep request bodies reasonable
+  for (let i = 0; i < rows.length; i += 500) {
+    await rest("short_interest?on_conflict=symbol,settlement_date", {
+      method: "POST", body: JSON.stringify(rows.slice(i, i + 500)), preferUpsert: true,
+    });
+  }
+}
+
+/** Most recent settlement date present in the archive. */
+export async function latestShortInterestDate(): Promise<string | null> {
+  const rows = await rest("short_interest?select=settlement_date&order=settlement_date.desc&limit=1", {
+    method: "GET", headers: { Prefer: "return=representation" },
+  });
+  return rows?.[0]?.settlement_date ?? null;
+}
+
+/** Squeeze candidates: latest-settlement rows with days_to_cover >= min, highest first. */
+export async function squeezeCandidates(settlementDate: string, minDtc: number, limit: number): Promise<Array<{ symbol: string; days_to_cover: number; si_shares: number }>> {
+  return await rest(
+    `short_interest?select=symbol,days_to_cover,si_shares&settlement_date=eq.${settlementDate}&days_to_cover=gte.${minDtc}&order=days_to_cover.desc&limit=${limit}`,
+    { method: "GET", headers: { Prefer: "return=representation" } },
+  ) ?? [];
+}

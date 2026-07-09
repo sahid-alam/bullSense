@@ -9,6 +9,8 @@ import { storeAvailable, upsertRegimeScore, getRecentRegimes, logJobRun, routine
 import { runWatchtower } from "../lib/watchtower.js";
 import { runScorer } from "../lib/scorer.js";
 import { complete } from "../providers/llm.js";
+import { archiveShortInterest } from "./si-archive.js";
+import { runSqueezeScout } from "../lib/squeeze.js";
 
 const SECTOR_ETFS = ["XLK", "XLF", "XLV", "XLE", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE", "XLC"];
 
@@ -112,16 +114,22 @@ async function main() {
     prev_score: prevScore,
   });
 
+  // Short-interest archive (bi-monthly; cheap no-op when unchanged) → Squeeze scout
+  const si = await archiveShortInterest();
+  const squeeze = await runSqueezeScout();
+
   // Receipts scorer — fill entries at next-open, mark open signals, close finished ones
   const score = await runScorer();
 
   // Watchtower sweep — every book position checked against its plan
   const watch = await runWatchtower();
 
-  await logJobRun("nightly", asOf, "ok", started, { ...out, scorer: score, watchtower: watch });
+  await logJobRun("nightly", asOf, "ok", started, { ...out, si, squeeze, scorer: score, watchtower: watch });
   await touchRoutine("nightly",
-    `Radar ${radar.score} → ${effectiveRegime} · scorer +${score.entriesFilled}/mark ${score.marked}/close ${score.closed.length} · Watchtower ${watch.events.length} events`);
+    `Radar ${radar.score} → ${effectiveRegime} · SI ${si.fresh ? `+${si.archived}` : "cached"} · Squeeze ${squeeze.fired} fired/${squeeze.candidates} cand · scorer mark ${score.marked}/close ${score.closed.length} · Watch ${watch.events.length}`);
   console.log("Radar persisted:", JSON.stringify(out));
+  console.log("SI archive:", JSON.stringify(si));
+  console.log("Squeeze:", JSON.stringify(squeeze));
   console.log("Scorer:", JSON.stringify(score));
   console.log("Watchtower:", JSON.stringify(watch));
 }

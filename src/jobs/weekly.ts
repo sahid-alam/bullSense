@@ -3,7 +3,7 @@
  * Confirms the engine is alive, the archives are growing, and no jobs are silently
  * failing. Sends a short digest to each distinct Telegram chat.
  */
-import { storeAvailable, weeklyStats, getProfiles, logJobRun, routineEnabled, touchRoutine } from "../providers/store.js";
+import { storeAvailable, weeklyStats, getProfiles, latestFundMetrics, logJobRun, routineEnabled, touchRoutine } from "../providers/store.js";
 import { sendTelegram } from "../providers/telegram.js";
 
 async function main() {
@@ -19,6 +19,12 @@ async function main() {
 
   const s = await weeklyStats();
   const healthy = s.jobErrors7d === 0;
+  const fm = await latestFundMetrics("engine");
+
+  const fundLine = fm && fm.days >= 10
+    ? `*Paper fund* (${fm.days}d): ${Number(fm.total_return_pct) >= 0 ? "+" : ""}${Number(fm.total_return_pct).toFixed(1)}% · Sharpe ${Number(fm.sharpe).toFixed(2)} · maxDD ${Number(fm.max_drawdown_pct).toFixed(1)}%` +
+      (fm.spy_return_pct != null ? ` · vs SPY ${Number(fm.total_return_pct) - Number(fm.spy_return_pct) >= 0 ? "+" : ""}${(Number(fm.total_return_pct) - Number(fm.spy_return_pct)).toFixed(1)}%` : "")
+    : `*Paper fund*: accruing — risk-adjusted stats appear once the equity curve has history.`;
 
   const lines = [
     `*BullSense — weekly health* 🐂`,
@@ -29,6 +35,7 @@ async function main() {
     `• Jobs run (7d): ${s.jobRuns7d}`,
     `• Sentiment archived (7d): ${s.sentimentRows} rows across ${s.hypeTickers} tickers`,
     `• Signals: ${s.openSignals} open · ${s.closedSignals} closed`,
+    `• ${fundLine}`,
     ``,
     s.closedSignals < 30
       ? `_Trust clock: ${s.closedSignals}/30 closed signals. Live signals aren't trusted with real attention until a family clears 30 at PF ≥ 1.3._`

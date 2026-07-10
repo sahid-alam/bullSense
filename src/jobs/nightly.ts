@@ -12,6 +12,8 @@ import { complete } from "../providers/llm.js";
 import { archiveShortInterest } from "./si-archive.js";
 import { runSqueezeScout } from "../lib/squeeze.js";
 import { runPaperFund, runPersonalFunds } from "../lib/paperfund.js";
+import { perfMetrics } from "../lib/perf.js";
+import { upsertBenchmark, getBenchmarkSeries, getEquitySeries, upsertFundMetrics, getProfilesWithPositions } from "../providers/store.js";
 
 const SECTOR_ETFS = ["XLK", "XLF", "XLV", "XLE", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE", "XLC"];
 
@@ -126,6 +128,22 @@ async function main() {
   const fund = await runPaperFund();
   // Personal funds — settle each human's own positions (opened via /took)
   const personal = await runPersonalFunds();
+
+  // Benchmark + risk-adjusted fund metrics (engine + any profile with positions)
+  await upsertBenchmark(asOf, spy[spy.length - 1].close);
+  const metricProfiles = ["engine", ...(await getProfilesWithPositions())].filter((v, i, a) => a.indexOf(v) === i);
+  for (const pid of metricProfiles) {
+    const series = await getEquitySeries(pid);
+    if (series.length < 3) continue;
+    const m = perfMetrics(series.map((r) => r.equity));
+    // SPY total return over the same window (buy-hold benchmark)
+    const bench = await getBenchmarkSeries(series[0].date);
+    const spyRet = bench.length >= 2 ? (bench[bench.length - 1].spy_close / bench[0].spy_close - 1) * 100 : null;
+    await upsertFundMetrics({
+      profile_id: pid, date: asOf, days: m.days, total_return_pct: m.totalReturnPct, cagr_pct: m.cagrPct,
+      vol_pct: m.volPct, sharpe: m.sharpe, sortino: m.sortino, max_drawdown_pct: m.maxDrawdownPct, spy_return_pct: spyRet,
+    });
+  }
 
   // Watchtower sweep — every book position checked against its plan
   const watch = await runWatchtower();

@@ -27,6 +27,8 @@ const HELP = [
   "/took `SYMBOL QTY [ENTRY]` — record that you traded a signal (tracks your P&L)",
   "/pnl — your realized P&L, win rate, and open positions",
   "/dossier `SYMBOL` — deep-dive research (fundamentals, bull/bear, verdict)",
+  "/fund — engine paper fund: return, Sharpe, drawdown vs SPY",
+  "/lab — latest genome re-tuning result",
   "/calibration — does higher conviction actually win more?",
   "/overrides — does overruling the system help or hurt?",
   "/add `SYM QTY COST [STOP]` — log a position you already own (Position Intake)",
@@ -219,6 +221,44 @@ async function handle(text: string, chatId: number): Promise<string> {
       await sql`insert into dossier_requests (symbol, requested_by, chat_id) values (${symbol}, ${String(chatId)}, ${String(chatId)})`;
     }
     return `🔬 Dossier queued for *${symbol}*. The Analyst Desk is researching — the full write-up arrives here shortly.`;
+  }
+
+  if (cmd === "/fund") {
+    const m = await sql`select * from fund_metrics where profile_id = 'engine' order by date desc limit 1`;
+    const eq = await sql`select equity, drawdown_pct from treasury_state where profile_id = 'engine' order by date desc limit 1`;
+    if (m.length === 0 || Number(m[0].days) < 10) {
+      const e = eq[0] ? `Equity *${Math.round(Number(eq[0].equity))}*.` : "";
+      return `*Engine Paper Fund*\n\n${e}\n_Risk-adjusted stats (Sharpe, Sortino, CAGR) appear once the equity curve has ~10 days of history. The fund takes every live signal automatically — it's the strategy's own scorecard._`;
+    }
+    const f = m[0];
+    const excess = f.spy_return_pct != null ? Number(f.total_return_pct) - Number(f.spy_return_pct) : null;
+    return [
+      `*Engine Paper Fund* (${f.days} days)`,
+      ``,
+      `Equity: *${eq[0] ? Math.round(Number(eq[0].equity)) : "—"}*`,
+      `Total return: *${Number(f.total_return_pct) >= 0 ? "+" : ""}${Number(f.total_return_pct).toFixed(1)}%* · CAGR ${Number(f.cagr_pct).toFixed(0)}%`,
+      `Sharpe *${Number(f.sharpe).toFixed(2)}* · Sortino ${Number(f.sortino).toFixed(2)} · vol ${Number(f.vol_pct).toFixed(0)}%`,
+      `Max drawdown: ${Number(f.max_drawdown_pct).toFixed(1)}%`,
+      excess != null ? `vs SPY: *${excess >= 0 ? "+" : ""}${excess.toFixed(1)}%* (SPY ${Number(f.spy_return_pct).toFixed(1)}%)` : ``,
+      ``,
+      `_An aggressive strategy has to beat SPY on a risk-adjusted basis, not just make money._`,
+    ].filter(Boolean).join("\n");
+  }
+
+  if (cmd === "/lab") {
+    const e = await sql`select run_at, family, n_variants, verdict, detail from lab_experiments order by run_at desc limit 1`;
+    if (e.length === 0) return "*Lab*\n\n_No re-tuning run yet. The Lab tests parameter variants of each genome against historical data monthly and proposes a promotion only if one beats the incumbent AND the benchmark out-of-sample._";
+    const r = e[0];
+    const icon = r.verdict === "promotion_proposed" ? "✅" : "↔️";
+    return [
+      `*Lab — latest re-tune* (${new Date(r.run_at).toISOString().slice(0, 10)})`,
+      ``,
+      `Family: ${r.family} · ${r.n_variants} variants tested`,
+      `${icon} *${r.verdict === "promotion_proposed" ? "Promotion proposed" : "No promotion"}*`,
+      r.detail,
+      ``,
+      `_The Lab proposes; you approve. It won't chase a curve-fit that fails out-of-sample._`,
+    ].join("\n");
   }
 
   if (cmd === "/calibration") {

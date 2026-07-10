@@ -382,3 +382,26 @@ export async function latestDossier(symbol: string): Promise<{ id: number; stanc
   const rows = await rest(`dossiers?select=id,stance,confidence,summary_md,created_at&symbol=eq.${encodeURIComponent(symbol)}&order=created_at.desc&limit=1`, { method: "GET", headers: { Prefer: "return=representation" } });
   return rows?.[0] ?? null;
 }
+
+// ===== fund metrics / benchmark (P2) =====
+
+export async function upsertBenchmark(date: string, spyClose: number): Promise<void> {
+  await rest("benchmark?on_conflict=date", { method: "POST", body: JSON.stringify([{ date, spy_close: spyClose }]), preferUpsert: true });
+}
+
+export async function getBenchmarkSeries(sinceDate: string): Promise<Array<{ date: string; spy_close: number }>> {
+  return await rest(`benchmark?select=date,spy_close&date=gte.${sinceDate}&order=date`, { method: "GET", headers: { Prefer: "return=representation" } }) ?? [];
+}
+
+export async function getEquitySeries(profileId: string): Promise<Array<{ date: string; equity: number }>> {
+  return await rest(`treasury_state?select=date,equity&profile_id=eq.${profileId}&order=date`, { method: "GET", headers: { Prefer: "return=representation" } }) ?? [];
+}
+
+export async function upsertFundMetrics(m: { profile_id: string; date: string; days: number; total_return_pct: number; cagr_pct: number; vol_pct: number; sharpe: number; sortino: number; max_drawdown_pct: number; spy_return_pct: number | null }): Promise<void> {
+  await rest("fund_metrics?on_conflict=profile_id,date", { method: "POST", body: JSON.stringify([m]), preferUpsert: true });
+}
+
+export async function latestFundMetrics(profileId: string): Promise<any | null> {
+  const rows = await rest(`fund_metrics?select=*&profile_id=eq.${profileId}&order=date.desc&limit=1`, { method: "GET", headers: { Prefer: "return=representation" } });
+  return rows?.[0] ?? null;
+}

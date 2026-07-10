@@ -352,3 +352,33 @@ export async function scoreOverrideForPosition(positionId: number, actualQty: nu
     await rest(`overrides?id=eq.${o.id}`, { method: "PATCH", body: JSON.stringify({ outcome_pnl: marginal }) });
   }
 }
+
+// ===== analyst desk (P1) =====
+
+export async function latestShortInterestForSymbol(symbol: string): Promise<{ days_to_cover: number; si_shares: number; settlement_date: string } | null> {
+  const rows = await rest(`short_interest?select=days_to_cover,si_shares,settlement_date&symbol=eq.${encodeURIComponent(symbol)}&order=settlement_date.desc&limit=1`, { method: "GET", headers: { Prefer: "return=representation" } });
+  return rows?.[0] ?? null;
+}
+
+export async function latestSentimentForSymbol(symbol: string): Promise<{ mentions_24h: number | null; captured_at: string } | null> {
+  const rows = await rest(`sentiment_snapshots?select=mentions_24h,captured_at&symbol=eq.${encodeURIComponent(symbol)}&order=captured_at.desc&limit=1`, { method: "GET", headers: { Prefer: "return=representation" } });
+  return rows?.[0] ?? null;
+}
+
+export async function insertDossier(d: { symbol: string; stance: string; confidence: number; summary_md: string; triggers: any; entry_price: number | null; spy_at_creation: number | null }): Promise<number | null> {
+  const rows = await rest("dossiers", { method: "POST", body: JSON.stringify([d]), headers: { Prefer: "return=representation" } });
+  return rows?.[0]?.id ?? null;
+}
+
+export async function queuedDossierRequests(): Promise<Array<{ id: number; symbol: string; chat_id: string | null }>> {
+  return await rest(`dossier_requests?select=id,symbol,chat_id&status=eq.queued&order=requested_at&limit=10`, { method: "GET", headers: { Prefer: "return=representation" } }) ?? [];
+}
+
+export async function completeDossierRequest(id: number, dossierId: number | null, error?: string): Promise<void> {
+  await rest(`dossier_requests?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ status: error ? "error" : "done", dossier_id: dossierId, error: error ?? null }) });
+}
+
+export async function latestDossier(symbol: string): Promise<{ id: number; stance: string; confidence: number; summary_md: string; created_at: string } | null> {
+  const rows = await rest(`dossiers?select=id,stance,confidence,summary_md,created_at&symbol=eq.${encodeURIComponent(symbol)}&order=created_at.desc&limit=1`, { method: "GET", headers: { Prefer: "return=representation" } });
+  return rows?.[0] ?? null;
+}

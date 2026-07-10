@@ -26,6 +26,7 @@ const HELP = [
   "/book — your positions vs their stops",
   "/took `SYMBOL QTY [ENTRY]` — record that you traded a signal (tracks your P&L)",
   "/pnl — your realized P&L, win rate, and open positions",
+  "/dossier `SYMBOL` — deep-dive research (fundamentals, bull/bear, verdict)",
   "/calibration — does higher conviction actually win more?",
   "/overrides — does overruling the system help or hurt?",
   "/add `SYM QTY COST [STOP]` — log a position you already own (Position Intake)",
@@ -204,6 +205,20 @@ async function handle(text: string, chatId: number): Promise<string> {
     return `✅ Recorded: you took *${symbol}* — ${qty} @ ${entry} (${profile.id}).\n` +
       `Risk to invalidation ${s.invalidation_price}: ~${(Math.abs(entry - Number(s.invalidation_price)) * qty).toFixed(0)} (${(riskBudgetPct * 100).toFixed(1)}% of equity).${overrideNote}\n` +
       `Your P&L on this trade is now tracked vs the engine's — see /pnl.`;
+  }
+
+  if (cmd === "/dossier") {
+    if (!args[0]) return "Usage: `/dossier SYMBOL` — a deep-dive research dossier (fundamentals, filings, bull vs bear, verdict). US tickers.";
+    const symbol = args[0].toUpperCase();
+    // serve a fresh cached dossier instantly
+    const cached = await sql`select summary_md from dossiers where symbol = ${symbol} and created_at > now() - interval '3 days' order by created_at desc limit 1`;
+    if (cached.length) return cached[0].summary_md + "\n\n_(cached · ask again in 3+ days for a fresh build)_";
+    // otherwise queue a build (avoid duplicate queued rows)
+    const pending = await sql`select 1 from dossier_requests where symbol = ${symbol} and status = 'queued' limit 1`;
+    if (pending.length === 0) {
+      await sql`insert into dossier_requests (symbol, requested_by, chat_id) values (${symbol}, ${String(chatId)}, ${String(chatId)})`;
+    }
+    return `🔬 Dossier queued for *${symbol}*. The Analyst Desk is researching — the full write-up arrives here shortly.`;
   }
 
   if (cmd === "/calibration") {

@@ -45,9 +45,31 @@ export async function complete(tier: Tier, system: string, user: string, maxToke
   } else {
     // judgment: prefer Claude; fall back to Groq's strongest open model if Claude absent
     if (anthKey) return anthropic(process.env.LLM_JUDGMENT_MODEL ?? "claude-sonnet-5", system, user, maxTokens);
-    if (groqKey) return groq("openai/gpt-oss-120b", system, user, maxTokens);
+    if (groqKey) return groq(process.env.GROQ_JUDGMENT_MODEL ?? "openai/gpt-oss-120b", system, user, maxTokens);
   }
 
   console.log(`[llm dry-run ${tier}] ${system.slice(0, 60)}… | ${user.slice(0, 100)}…`);
   return null;
+}
+
+/** JSON-mode completion (Groq/OpenAI json_object). Returns parsed object or null. */
+export async function completeJson(system: string, user: string, maxTokens = 1500): Promise<any | null> {
+  if (!has(process.env.GROQ_API_KEY)) {
+    console.log(`[llm json dry-run] ${system.slice(0, 60)}…`);
+    return null;
+  }
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${process.env.GROQ_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model: process.env.GROQ_JUDGMENT_MODEL ?? "openai/gpt-oss-120b",
+      max_tokens: maxTokens, temperature: 0.3,
+      response_format: { type: "json_object" },
+      messages: [{ role: "system", content: system }, { role: "user", content: user }],
+    }),
+  });
+  if (!res.ok) { console.error(`groq json failed: HTTP ${res.status} ${await res.text()}`); return null; }
+  const json = (await res.json()) as any;
+  const txt = json?.choices?.[0]?.message?.content;
+  try { return txt ? JSON.parse(txt) : null; } catch { return null; }
 }

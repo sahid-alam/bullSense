@@ -1,0 +1,20 @@
+name: dossier
+on:
+  schedule:
+    - cron: "*/30 13-23 * * 1-5"   # every 30min during active hours; processes the queue
+  workflow_dispatch: {}
+jobs:
+  dossier:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm ci
+      - run: npm run job:dossier
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          GROQ_JUDGMENT_MODEL: llama-3.3-70b-versatile
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}

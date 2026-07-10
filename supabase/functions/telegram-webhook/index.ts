@@ -103,6 +103,50 @@ function treasurySuggestedQty(equity: number, conviction: number, entry: number,
   return Math.max(0, Math.min(byRisk, byCapital));
 }
 
+/** Pre-trade behavioral guards — the documented ways retail traders lose money,
+ *  caught at the moment of entry. Returns warning lines (empty = clean). */
+async function behavioralGuards(profileId: string, symbol: string, qty: number, entry: number): Promise<string[]> {
+  const w: string[] = [];
+
+  // 1. AVERAGING DOWN — adding to an underwater position turns small losses into large ones
+  const held = await sql`select qty, cost_basis from book where profile_id=${profileId} and symbol=${symbol} and kind='holding' limit 1`;
+  if (held[0] && entry < Number(held[0].cost_basis)) {
+    w.push(`⚠️ *Averaging down:* you already hold ${symbol} at ${held[0].cost_basis}; this adds below cost. Adding to losers is how small losses become account-threatening ones.`);
+  }
+
+  // 2. CONCENTRATION — one name dominating the book is uncompensated risk
+  const book = await sql`select qty, cost_basis from book where profile_id=${profileId} and kind='holding' and qty>0`;
+  let bookVal = qty * entry;
+  for (const b of book) bookVal += Number(b.qty) * Number(b.cost_basis);
+  const posVal = qty * entry + (held[0] ? Number(held[0].qty) * Number(held[0].cost_basis) : 0);
+  if (bookVal > 0 && posVal / bookVal > 0.35) {
+    w.push(`⚠️ *Concentration:* ${symbol} would be ~${Math.round((posVal / bookVal) * 100)}% of your book. Single stocks are far more volatile than an index — this is uncompensated risk.`);
+  }
+
+  // 3. OVERTRADING / REVENGE — a burst of trades (esp. after a loss) is a top way accounts bleed
+  const recent = await sql`select count(*) as n, count(*) filter (where realized_pnl < 0) as losses from positions where profile_id=${profileId} and entry_at > now() - interval '48 hours'`;
+  if (Number(recent[0].n) >= 3) {
+    const revenge = Number(recent[0].losses) > 0 ? " Some were losses — beware revenge trading." : "";
+    w.push(`⚠️ *Overtrading:* that's your ${Number(recent[0].n) + 1}th trade in 48h.${revenge} Trades taken from boredom, FOMO, or to recover a loss have no edge.`);
+  }
+
+  // 4. CHASING AN EXTENDED MOVE — buying far above trend is poor risk/reward (FOMO)
+  try {
+    const yh = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=3mo&interval=1d`, { headers: { "User-Agent": "Mozilla/5.0" } });
+    if (yh.ok) {
+      const j = await yh.json();
+      const closes = (j?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? []).filter((c: number) => c != null);
+      if (closes.length >= 50) {
+        const ma50 = closes.slice(-50).reduce((a: number, b: number) => a + b, 0) / 50;
+        const ext = (entry / ma50 - 1) * 100;
+        if (ext > 25) w.push(`⚠️ *Extended:* ${symbol} is ~${Math.round(ext)}% above its 50-day average. Chasing a move that's already run is exactly the FOMO entry that hands you a poor risk/reward — the Cupid pattern.`);
+      }
+    }
+  } catch { /* price check is best-effort */ }
+
+  return w;
+}
+
 async function handle(text: string, chatId: number): Promise<string> {
   const [cmdRaw, ...args] = text.trim().split(/\s+/);
   const cmd = cmdRaw.toLowerCase().replace(/@\w+$/, "");
@@ -167,6 +211,9 @@ async function handle(text: string, chatId: number): Promise<string> {
     const profile = await primaryProfileFor(chatId);
     if (!profile) return "No profile found for you.";
 
+    // behavioral guards run against PRIOR state, before the upsert
+    const guards = await behavioralGuards(profile.id, symbol, qty, cost);
+
     await sql`
       insert into book (profile_id, symbol, exchange, kind, qty, cost_basis, invalidation_price)
       values (${profile.id}, ${symbol}, ${exchange}, 'holding', ${qty}, ${cost}, ${stop})
@@ -191,6 +238,7 @@ async function handle(text: string, chatId: number): Promise<string> {
       lines.push("⚠️ *No stop set.* An unguarded position is a hope, not a plan — set one:");
       lines.push(`\`/stop ${symbol} <price>\``);
     }
+    if (guards.length) lines.push("", ...guards);
     return lines.join("\n");
   }
 
@@ -209,6 +257,8 @@ async function handle(text: string, chatId: number): Promise<string> {
     const s = sig[0];
     const entry = args[2] !== undefined ? Number(args[2]) : Number(s.entry_price);
     if (!isFinite(entry) || entry <= 0) return "ENTRY must be a positive number (or the signal must have a filled entry).";
+
+    const guards = await behavioralGuards(profile.id, symbol, qty, entry); // prior state, before insert
 
     const riskBudgetPct = (Math.abs(entry - Number(s.invalidation_price)) * qty) / profile.equity;
     const posRows = await sql`
@@ -229,6 +279,7 @@ async function handle(text: string, chatId: number): Promise<string> {
 
     return `✅ Recorded: you took *${symbol}* — ${qty} @ ${entry} (${profile.id}).\n` +
       `Risk to invalidation ${s.invalidation_price}: ~${(Math.abs(entry - Number(s.invalidation_price)) * qty).toFixed(0)} (${(riskBudgetPct * 100).toFixed(1)}% of equity).${overrideNote}\n` +
+      (guards.length ? "\n" + guards.join("\n") + "\n" : "") +
       `Your P&L on this trade is now tracked vs the engine's — see /pnl.`;
   }
 

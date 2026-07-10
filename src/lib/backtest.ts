@@ -15,6 +15,10 @@ export interface SqueezeParams {
   minRelVolume: number;     // rel_volume >= this
   invalidationPct: number;  // stop at -this from entry (0.10 = -10%), or 20-day low
   timeStopDays: number;
+  // --- optional genome dimensions (Lab v1: the LLM can design across these) ---
+  requireAbove50ma?: boolean;  // only enter if price is above its 50-day average (trend filter)
+  minMomentum20?: number;      // require 20-day momentum >= this % (e.g. 0 = flat, 5 = rising)
+  maxMomentum20?: number;      // require 20-day momentum <= this % (fade over-extension)
 }
 
 export interface BacktestResult {
@@ -59,7 +63,15 @@ export function backtestSqueeze(
       const vol20 = avgVol(bars, i, 20);
       const relVol = vol20 > 0 ? b.volume / vol20 : 0;
       const crossed = b.close > ma20 && bars[i - 1].close <= prevMa20;
-      if (crossed && relVol >= params.minRelVolume) { trigIdx = i; break; }
+      if (!(crossed && relVol >= params.minRelVolume)) continue;
+      // optional Lab-v1 filters
+      if (params.requireAbove50ma && i >= 50 && b.close < avg(bars, i, 50)) continue;
+      if (params.minMomentum20 !== undefined || params.maxMomentum20 !== undefined) {
+        const mom = (b.close / bars[i - 20].close - 1) * 100;
+        if (params.minMomentum20 !== undefined && mom < params.minMomentum20) continue;
+        if (params.maxMomentum20 !== undefined && mom > params.maxMomentum20) continue;
+      }
+      trigIdx = i; break;
     }
     if (trigIdx < 0 || trigIdx + 1 >= bars.length) continue;
 

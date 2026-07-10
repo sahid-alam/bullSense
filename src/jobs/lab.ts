@@ -7,7 +7,8 @@
  */
 import { gunzipSync } from "node:zlib";
 import { backtestSqueeze, type Bar, type SIRow, type SqueezeParams } from "../lib/backtest.js";
-import { storeAvailable, getLiveGenomes, getProfiles, logJobRun, routineEnabled, touchRoutine } from "../providers/store.js";
+import { proposeGenomes, sensitivityFloor, type ProposedGenome } from "../lib/labgen.js";
+import { storeAvailable, getLiveGenomes, getProfiles, insertGraveyard, cumulativeVariantsTested, logJobRun, routineEnabled, touchRoutine } from "../providers/store.js";
 import { sendTelegram } from "../providers/telegram.js";
 
 const SB = process.env.SUPABASE_URL, KEY = process.env.SUPABASE_SECRET_KEY;
@@ -64,28 +65,56 @@ async function main() {
   const incumbent: SqueezeParams = { minDaysToCover: dtc, minRelVolume: rv, invalidationPct: 0.10, timeStopDays: 30 };
   const incTr = backtestSqueeze(incumbent, siTrain, prices, spy), incTe = backtestSqueeze(incumbent, siTest, prices, spy);
 
-  // mutation grid
-  const variants: SqueezeParams[] = [];
+  // --- candidates: parameter grid + LLM-INVENTED genomes (Lab v1) ---
+  const gridVariants: SqueezeParams[] = [];
   for (const d of [4, 5, 6, 8, 10]) for (const r of [1.3, 1.5, 2.0]) for (const inv of [0.08, 0.10, 0.12])
-    variants.push({ minDaysToCover: d, minRelVolume: r, invalidationPct: inv, timeStopDays: 30 });
+    gridVariants.push({ minDaysToCover: d, minRelVolume: r, invalidationPct: inv, timeStopDays: 30 });
 
-  const scored = variants.map((p) => ({ p, tr: backtestSqueeze(p, siTrain, prices, spy), te: backtestSqueeze(p, siTest, prices, spy) }))
-    .filter((x) => x.tr.trades >= 100 && x.te.trades >= 100); // enough trades BOTH windows → reliable PF, not noise
+  const context = `Incumbent squeeze genome: dtc>=${incumbent.minDaysToCover}, relVol>=${incumbent.minRelVolume}, invalidation ${(incumbent.invalidationPct * 100).toFixed(0)}%. ` +
+    `Its held-out test profit factor is ${incTe.profitFactor.toFixed(2)} with excess-vs-SPY ${incTe.excessVsSpy.toFixed(2)}% over ${incTe.trades} trades — it does NOT clearly beat buy-and-hold. ` +
+    `Design 6 genomes that might find a real edge where it doesn't.`;
+  let proposed: ProposedGenome[] = [];
+  try { proposed = await proposeGenomes(context); } catch (e) { console.error("genome proposal failed (non-fatal):", e); }
+  console.log(`lab: ${gridVariants.length} grid + ${proposed.length} LLM-invented candidates`);
 
-  // promotion criteria (conservative — testing many variants inflates the best by chance):
-  // beats incumbent test-PF by a clear margin, beats SPY out-of-sample by >1%, and
-  // doesn't overfit (test PF holds ≥75% of train PF).
-  const eligible = scored.filter((x) =>
-    x.te.profitFactor >= incTe.profitFactor + 0.15 &&
+  const gridScored = gridVariants.map((p) => ({ p, rationale: "parameter mutation", tr: backtestSqueeze(p, siTrain, prices, spy), te: backtestSqueeze(p, siTest, prices, spy) }));
+  const genScored = proposed.map((g) => ({ p: g.params, rationale: g.rationale, tr: backtestSqueeze(g.params, siTrain, prices, spy), te: backtestSqueeze(g.params, siTest, prices, spy) }));
+  const scored = [...gridScored, ...genScored].filter((x) => x.tr.trades >= 100 && x.te.trades >= 100);
+
+  // multiple-testing haircut: the more variants ever tested, the higher the bar the
+  // best-by-chance must clear (deflated expectation). Grows slowly with log(total).
+  const everTested = (await cumulativeVariantsTested()) + scored.length;
+  const haircut = 0.15 + 0.03 * Math.log10(Math.max(10, everTested));
+
+  // promotion: beats incumbent test-PF by the (haircut) margin, beats SPY out-of-sample,
+  // doesn't overfit (test ≥75% of train), AND survives the sensitivity gauntlet.
+  const passers = scored.filter((x) =>
+    x.te.profitFactor >= incTe.profitFactor + haircut &&
     x.te.excessVsSpy > 1.0 &&
     x.te.profitFactor >= x.tr.profitFactor * 0.75,
   ).sort((a, b) => b.te.profitFactor - a.te.profitFactor);
 
-  const best = eligible[0] ?? null;
+  // gauntlet: parameter-sensitivity — a real edge survives ±20% perturbation
+  let best: typeof passers[0] | null = null;
+  for (const cand of passers) {
+    const floor = sensitivityFloor(cand.p, siTest, prices, spy);
+    if (floor >= incTe.profitFactor) { best = cand; break; }
+    await insertGraveyard({ family: "squeeze", params: cand.p, rationale: cand.rationale, cause_of_death: "fragile", train_pf: cand.tr.profitFactor, test_pf: cand.te.profitFactor, test_excess_spy: cand.te.excessVsSpy });
+  }
+
+  // bury the LLM-invented genomes that failed outright (with their thesis + cause) —
+  // the public record of ideas that didn't survive contact with the data.
+  for (const g of genScored) {
+    if (g === best) continue;
+    if (g.te.trades < 100) { await insertGraveyard({ family: "squeeze", params: g.p, rationale: g.rationale, cause_of_death: "too_few_trades", train_pf: g.tr.profitFactor, test_pf: g.te.profitFactor, test_excess_spy: g.te.excessVsSpy }); continue; }
+    if (g.te.profitFactor < g.tr.profitFactor * 0.75) { await insertGraveyard({ family: "squeeze", params: g.p, rationale: g.rationale, cause_of_death: "overfit", train_pf: g.tr.profitFactor, test_pf: g.te.profitFactor, test_excess_spy: g.te.excessVsSpy }); continue; }
+    if (g.te.excessVsSpy <= 1.0) { await insertGraveyard({ family: "squeeze", params: g.p, rationale: g.rationale, cause_of_death: "lost_to_spy", train_pf: g.tr.profitFactor, test_pf: g.te.profitFactor, test_excess_spy: g.te.excessVsSpy }); }
+  }
+
   const verdict = best ? "promotion_proposed" : "no_promotion";
   const detail = best
-    ? `Proposed: dtc>=${best.p.minDaysToCover} rv>=${best.p.minRelVolume} inv=${(best.p.invalidationPct * 100).toFixed(0)}% → test PF ${best.te.profitFactor.toFixed(2)} vs incumbent ${incTe.profitFactor.toFixed(2)}, excess vs SPY +${best.te.excessVsSpy.toFixed(2)}%`
-    : `No variant beat the incumbent AND the benchmark out-of-sample. Incumbent test PF ${incTe.profitFactor.toFixed(2)}, excess vs SPY ${incTe.excessVsSpy.toFixed(2)}%. Genome unchanged.`;
+    ? `Proposed: dtc>=${best.p.minDaysToCover} rv>=${best.p.minRelVolume} inv=${(best.p.invalidationPct * 100).toFixed(0)}%${best.p.requireAbove50ma ? " +trend" : ""} — test PF ${best.te.profitFactor.toFixed(2)} vs incumbent ${incTe.profitFactor.toFixed(2)}, excess vs SPY +${best.te.excessVsSpy.toFixed(2)}%, survived ±20% sensitivity. Rationale: ${best.rationale}`
+    : `No candidate (${scored.length} tested, ${genScored.length} LLM-invented) beat the incumbent AND the benchmark out-of-sample and survived the gauntlet. Incumbent test PF ${incTe.profitFactor.toFixed(2)}, excess vs SPY ${incTe.excessVsSpy.toFixed(2)}%. Genome unchanged; failed ideas retired to the graveyard.`;
 
   // persist experiment
   await fetch(`${SB}/rest/v1/lab_experiments`, {
@@ -101,10 +130,10 @@ async function main() {
   const msg = [
     `🧪 *Lab — squeeze re-tune*`,
     ``,
-    `Tested ${scored.length} parameter variants on ${siTrain.length ? "" : ""}train + held-out test data.`,
+    `Tested ${scored.length} candidates (${genScored.length} LLM-invented) — grid + invented genomes, walk-forward + ±20% sensitivity gauntlet.`,
     verdict === "promotion_proposed" ? `✅ *Promotion proposed:* ${detail}` : `↔️ *No promotion.* ${detail}`,
     ``,
-    `_The Lab proposes; you approve. Honest result: it won't chase a curve-fit that fails out-of-sample._`,
+    `_The Lab invents, tests, and buries what fails — you approve promotions. It won't chase a curve-fit that dies out-of-sample._`,
   ].join("\n");
   const seen = new Set<string>();
   for (const p of await getProfiles()) { if (p.telegram_chat_id && !seen.has(p.telegram_chat_id)) { seen.add(p.telegram_chat_id); await sendTelegram(p.telegram_chat_id, msg); } }

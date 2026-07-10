@@ -405,3 +405,17 @@ export async function latestFundMetrics(profileId: string): Promise<any | null> 
   const rows = await rest(`fund_metrics?select=*&profile_id=eq.${profileId}&order=date.desc&limit=1`, { method: "GET", headers: { Prefer: "return=representation" } });
   return rows?.[0] ?? null;
 }
+
+// ===== lab v1: graveyard + multiple-testing (P2) =====
+
+export async function insertGraveyard(g: { family: string; params: any; rationale: string; cause_of_death: string; train_pf: number; test_pf: number; test_excess_spy: number }): Promise<void> {
+  await rest("genome_graveyard", { method: "POST", body: JSON.stringify([g]) });
+}
+
+/** Total genomes ever buried — proxy for cumulative variants tested (multiple-testing haircut). */
+export async function cumulativeVariantsTested(): Promise<number> {
+  const b = base(); if (!b) return 0;
+  const res = await fetch(`${b.url}/genome_graveyard?select=id`, { method: "HEAD", headers: { apikey: b.key, Authorization: `Bearer ${b.key}`, Prefer: "count=exact" } });
+  const cr = res.headers.get("content-range");
+  return cr ? Number(cr.split("/")[1]) || 0 : 0;
+}

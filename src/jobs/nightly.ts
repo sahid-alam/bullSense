@@ -13,7 +13,7 @@ import { archiveShortInterest } from "./si-archive.js";
 import { runSqueezeScout } from "../lib/squeeze.js";
 import { runPaperFund, runPersonalFunds } from "../lib/paperfund.js";
 import { perfMetrics } from "../lib/perf.js";
-import { upsertBenchmark, getBenchmarkSeries, getEquitySeries, upsertFundMetrics, getProfilesWithPositions } from "../providers/store.js";
+import { upsertBenchmark, getBenchmarkSeries, getEquitySeries, upsertFundMetrics, getProfilesWithPositions, recordBelief } from "../providers/store.js";
 
 const SECTOR_ETFS = ["XLK", "XLF", "XLV", "XLE", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE", "XLC"];
 
@@ -120,6 +120,9 @@ async function main() {
   // Short-interest archive (bi-monthly; cheap no-op when unchanged) → Squeeze scout
   const si = await archiveShortInterest();
   const squeeze = await runSqueezeScout();
+
+  // Ledger of Beliefs — record the market-regime belief; supersession = a mind-change
+  const regimeBelief = await recordBelief({ category: "market_regime", subject: "MARKET", stance: effectiveRegime, confidence: Math.round(radar.score), rationale: narrative ?? undefined });
 
   // Receipts scorer — fill entries at next-open, mark open signals, close finished ones
   const score = await runScorer();

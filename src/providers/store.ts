@@ -419,3 +419,17 @@ export async function cumulativeVariantsTested(): Promise<number> {
   const cr = res.headers.get("content-range");
   return cr ? Number(cr.split("/")[1]) || 0 : 0;
 }
+
+// ===== ledger of beliefs (P2) =====
+
+/** Record/update a belief. If the stance changed vs the current belief for this
+ *  (category, subject), supersede the old one and insert a new record — that
+ *  supersession IS the "changed its mind" event. No-op if unchanged. */
+export async function recordBelief(b: { category: string; subject: string; stance: string; confidence?: number | null; rationale?: string | null }): Promise<"unchanged" | "changed" | "new"> {
+  const current = await rest(`beliefs?select=id,stance&category=eq.${b.category}&subject=eq.${encodeURIComponent(b.subject)}&superseded_at=is.null&limit=1`, { method: "GET", headers: { Prefer: "return=representation" } });
+  const cur = current?.[0];
+  if (cur && cur.stance === b.stance) return "unchanged";
+  if (cur) await rest(`beliefs?id=eq.${cur.id}`, { method: "PATCH", body: JSON.stringify({ superseded_at: new Date().toISOString() }) });
+  await rest("beliefs", { method: "POST", body: JSON.stringify([{ ...b, prev_id: cur?.id ?? null }]) });
+  return cur ? "changed" : "new";
+}

@@ -3,7 +3,7 @@
  * persists it (frozen with stance + triggers for later scoring), and delivers it
  * to the requester over Telegram. Runs on schedule + on-demand (workflow_dispatch).
  */
-import { storeAvailable, queuedDossierRequests, insertDossier, completeDossierRequest, logJobRun, routineEnabled, touchRoutine } from "../providers/store.js";
+import { storeAvailable, queuedDossierRequests, insertDossier, completeDossierRequest, recordBelief, logJobRun, routineEnabled, touchRoutine } from "../providers/store.js";
 import { buildDossier } from "../lib/dossier.js";
 import { sendTelegram } from "../providers/telegram.js";
 
@@ -29,6 +29,8 @@ async function main() {
         triggers: d.triggers, entry_price: d.entry_price, spy_at_creation: d.spy_at_creation,
       });
       await completeDossierRequest(req.id, dossierId);
+      // Ledger of Beliefs — this dossier's stance becomes BullSense's belief on the stock
+      await recordBelief({ category: "stock_stance", subject: d.symbol, stance: d.stance, confidence: d.confidence, rationale: `Dossier ${new Date().toISOString().slice(0, 10)}` });
       built++;
       if (req.chat_id) await sendTelegram(req.chat_id, d.summary_md);
     } catch (e) {

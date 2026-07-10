@@ -18,6 +18,27 @@ async function reply(token: string, chatId: number, text: string) {
   });
 }
 
+/** Chat interrogation: answer a question grounded ONLY in BullSense's own data. */
+async function groqAsk(context: string, question: string): Promise<string> {
+  const key = await cfg("groq_api_key");
+  const model = (await cfg("groq_model")) ?? "llama-3.3-70b-versatile";
+  if (!key) return "Chat isn't configured.";
+  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      model, max_tokens: 500, temperature: 0.3,
+      messages: [
+        { role: "system", content: "You are BullSense, a disciplined AI trading analyst answering its operator. Answer ONLY from the SYSTEM STATE provided — never invent numbers, prices, or signals. If the state doesn't cover the question, say so plainly. Be concise (2-4 sentences), specific, and cite the actual figures. No hedging, no disclaimers." },
+        { role: "user", content: `SYSTEM STATE:\n${context}\n\nQUESTION: ${question}` },
+      ],
+    }),
+  });
+  if (!res.ok) return "Couldn't reach the analyst right now.";
+  const j = await res.json();
+  return j?.choices?.[0]?.message?.content ?? "No answer.";
+}
+
 const HELP = [
   "*BullSense commands* 🐂",
   "",
@@ -29,6 +50,8 @@ const HELP = [
   "/dossier `SYMBOL` — deep-dive research (fundamentals, bull/bear, verdict)",
   "/fund — engine paper fund: return, Sharpe, drawdown vs SPY",
   "/lab — latest genome re-tuning result",
+  "/beliefs — what BullSense currently believes (and recent mind-changes)",
+  "/ask `question` — interrogate the analyst about its own data",
   "/calibration — does higher conviction actually win more?",
   "/overrides — does overruling the system help or hurt?",
   "/add `SYM QTY COST [STOP]` — log a position you already own (Position Intake)",
@@ -259,6 +282,62 @@ async function handle(text: string, chatId: number): Promise<string> {
       ``,
       `_The Lab proposes; you approve. It won't chase a curve-fit that fails out-of-sample._`,
     ].join("\n");
+  }
+
+  if (cmd === "/beliefs") {
+    const market = await sql`select stance, confidence, as_of, rationale from beliefs where category='market_regime' and superseded_at is null order by as_of desc limit 1`;
+    const stocks = await sql`select subject, stance, confidence from beliefs where category='stock_stance' and superseded_at is null order by as_of desc limit 6`;
+    const changes = await sql`select category, subject, stance, as_of from beliefs where superseded_at is not null order by superseded_at desc limit 4`;
+    const lines = ["*What BullSense believes* 🧭", ""];
+    if (market[0]) {
+      const m = market[0];
+      const label = m.stance === "risk_on" ? "🟢 RISK-ON" : m.stance === "neutral" ? "🟡 NEUTRAL" : "🔴 RISK-OFF";
+      lines.push(`*Market:* ${label} (conf ${m.confidence}) since ${new Date(m.as_of).toISOString().slice(0, 10)}`);
+      if (m.rationale) lines.push(`_${String(m.rationale).slice(0, 160)}_`);
+    }
+    if (stocks.length) {
+      lines.push("", "*Stock stances:*");
+      for (const s of stocks) lines.push(`• *${s.subject}* — ${String(s.stance).replace("_", "-")} (${s.confidence})`);
+    }
+    if (changes.length) {
+      lines.push("", "*Recent mind-changes:*");
+      for (const c of changes) lines.push(`↳ ${c.subject} → ${String(c.stance).replace("_", "-")} (${new Date(c.as_of).toISOString().slice(0, 10)})`);
+    }
+    if (!market[0] && !stocks.length) lines.push("_No beliefs recorded yet — they accrue from the Radar and dossiers._");
+    return lines.join("\n");
+  }
+
+  if (cmd === "/ask") {
+    const question = args.join(" ").trim();
+    if (!question) return "Usage: `/ask <question>` — e.g. `/ask what's the market regime and why?` or `/ask what do you think of GME?`";
+    // gather a compact snapshot of BullSense's own state
+    const regime = await sql`select date, score, regime, narrative from regime_scores order by date desc limit 1`;
+    const sigs = await sql`select symbol, conviction, thesis_md, status from signals order by triggered_at desc limit 5`;
+    const doss = await sql`select symbol, stance, confidence from dossiers order by created_at desc limit 3`;
+    const fund = await sql`select equity, drawdown_pct from treasury_state where profile_id='engine' order by date desc limit 1`;
+    const lab = await sql`select verdict, detail from lab_experiments order by run_at desc limit 1`;
+    const pos = await sql`select b.symbol, b.qty, b.cost_basis, b.invalidation_price from book b join profiles p on p.id=b.profile_id where p.telegram_chat_id=${String(chatId)} and b.kind='holding' and b.qty>0`;
+    // ticker-specific pull if a symbol is mentioned
+    const tick = (question.toUpperCase().match(/\b[A-Z]{2,5}(?:\.NS)?\b/) ?? [])[0];
+    let tickCtx = "";
+    if (tick) {
+      const td = await sql`select stance, confidence, summary_md from dossiers where symbol=${tick} order by created_at desc limit 1`;
+      const ts = await sql`select conviction, thesis_md, status from signals where symbol=${tick} order by triggered_at desc limit 1`;
+      const si = await sql`select days_to_cover, si_shares, settlement_date from short_interest where symbol=${tick.replace(/\.NS$/, "")} order by settlement_date desc limit 1`;
+      if (td[0]) tickCtx += `\n${tick} DOSSIER: ${td[0].stance} (conf ${td[0].confidence}). ${String(td[0].summary_md).slice(0, 400)}`;
+      if (ts[0]) tickCtx += `\n${tick} SIGNAL: conviction ${ts[0].conviction}, ${ts[0].status}. ${ts[0].thesis_md ?? ""}`;
+      if (si[0]) tickCtx += `\n${tick} SHORT INTEREST: ${(Number(si[0].si_shares) / 1e6).toFixed(1)}M shares, ${Number(si[0].days_to_cover).toFixed(1)} days-to-cover (${si[0].settlement_date}).`;
+    }
+    const ctx = [
+      regime[0] ? `MARKET: score ${regime[0].score}/100 ${regime[0].regime} (${regime[0].date}). ${regime[0].narrative ?? ""}` : "",
+      sigs.length ? `RECENT SIGNALS: ${sigs.map((s: any) => `${s.symbol} conv${s.conviction} ${s.status}`).join("; ")}` : "No recent signals.",
+      doss.length ? `RECENT DOSSIERS: ${doss.map((d: any) => `${d.symbol}=${d.stance}(${d.confidence})`).join("; ")}` : "",
+      fund[0] ? `ENGINE FUND: equity ${Math.round(Number(fund[0].equity))}, drawdown ${(Number(fund[0].drawdown_pct) * 100).toFixed(1)}%.` : "",
+      lab[0] ? `LAB: ${lab[0].verdict} — ${lab[0].detail}` : "",
+      pos.length ? `YOUR HOLDINGS: ${pos.map((p: any) => `${p.symbol} ${p.qty}@${p.cost_basis} stop ${p.invalidation_price ?? "none"}`).join("; ")}` : "You hold no tracked positions.",
+      tickCtx,
+    ].filter(Boolean).join("\n");
+    return await groqAsk(ctx, question);
   }
 
   if (cmd === "/calibration") {

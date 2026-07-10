@@ -11,7 +11,8 @@
     "test:treasury": "tsx src/lib/treasury.test.ts",
     "setup:telegram": "tsx src/jobs/telegram-setup.ts",
     "briefing:manual": "tsx src/jobs/first-briefing.ts",
-    "job:dossier": "tsx src/jobs/dossier.ts"
+    "job:dossier": "tsx src/jobs/dossier.ts",
+    "job:lab": "tsx src/jobs/lab.ts"
   },
   "dependencies": {
     "pg": "^8.13.0",

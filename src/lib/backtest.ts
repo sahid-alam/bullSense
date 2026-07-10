@@ -1,0 +1,113 @@
+/**
+ * Genome backtest engine (Lab). Replays a squeeze-family genome over historical
+ * short-interest + price data and returns net-of-friction stats. Same entry/exit
+ * rules as the live Scout, so backtest and live are the SAME logic — no drift.
+ *
+ * Data is passed in (loaded from the bundle), keeping this a pure function that
+ * the Lab can call thousands of times to compare parameter variants.
+ */
+
+export interface Bar { date: string; open: number; high: number; low: number; close: number; volume: number }
+export interface SIRow { symbol: string; settlementDate: string; daysToCover: number }
+
+export interface SqueezeParams {
+  minDaysToCover: number;   // days_to_cover >= this
+  minRelVolume: number;     // rel_volume >= this
+  invalidationPct: number;  // stop at -this from entry (0.10 = -10%), or 20-day low
+  timeStopDays: number;
+}
+
+export interface BacktestResult {
+  trades: number;
+  winRate: number;
+  profitFactor: number;     // net of friction
+  avgNetReturn: number;     // % per trade
+  avgSpyReturn: number;     // % over same windows
+  excessVsSpy: number;      // avg net - avg spy
+  maxDrawdownPct: number;   // on the equal-weight trade equity curve
+}
+
+const FRICTION_RT = 0.002;  // 20bps round-trip (commission + slippage)
+const HORIZON_CAP = 60;
+
+/** Run one genome variant. prices: symbol → bars (sorted). si: settlement candidates. */
+export function backtestSqueeze(
+  params: SqueezeParams,
+  si: SIRow[],
+  prices: Map<string, Bar[]>,
+  spy: Bar[],
+): BacktestResult {
+  const spyClose = (d: string) => spy.find((b) => b.date >= d)?.close ?? null;
+  const rets: number[] = [];
+  const spyRets: number[] = [];
+  const lastSignal = new Map<string, string>();
+
+  const candidates = si.filter((r) => r.daysToCover >= params.minDaysToCover);
+
+  for (const cand of candidates) {
+    const bars = prices.get(cand.symbol);
+    if (!bars || bars.length < 21) continue;
+
+    // find a trigger within 21 days after settlement: close crosses above MA20 on rel-vol
+    const windowEnd = new Date(new Date(cand.settlementDate).getTime() + 21 * 86400_000).toISOString().slice(0, 10);
+    let trigIdx = -1;
+    for (let i = 20; i < bars.length; i++) {
+      const b = bars[i];
+      if (b.date <= cand.settlementDate || b.date > windowEnd) continue;
+      const ma20 = avg(bars, i, 20);
+      const prevMa20 = avg(bars, i - 1, 20);
+      const vol20 = avgVol(bars, i, 20);
+      const relVol = vol20 > 0 ? b.volume / vol20 : 0;
+      const crossed = b.close > ma20 && bars[i - 1].close <= prevMa20;
+      if (crossed && relVol >= params.minRelVolume) { trigIdx = i; break; }
+    }
+    if (trigIdx < 0 || trigIdx + 1 >= bars.length) continue;
+
+    // dedupe: one signal per symbol per ~20 sessions
+    const trigDate = bars[trigIdx].date;
+    const prev = lastSignal.get(cand.symbol);
+    if (prev && daysBetween(prev, trigDate) < 28) continue;
+    lastSignal.set(cand.symbol, trigDate);
+
+    const entry = bars[trigIdx + 1].open;    // next-session open (anti-cherry-picking)
+    if (!(entry > 0)) continue;
+    const entryDate = bars[trigIdx + 1].date;
+    const low20 = Math.min(...bars.slice(Math.max(0, trigIdx - 19), trigIdx + 1).map((b) => b.low));
+    const invalidation = Math.max(low20, entry * (1 - params.invalidationPct));
+
+    let exit = entry, exitDate = entryDate;
+    const maxI = Math.min(trigIdx + 1 + params.timeStopDays, trigIdx + 1 + HORIZON_CAP, bars.length - 1);
+    for (let i = trigIdx + 1; i <= maxI; i++) {
+      const b = bars[i];
+      if (i > trigIdx + 1 && b.low <= invalidation) { exit = invalidation; exitDate = b.date; break; }
+      if (i === maxI) { exit = b.close; exitDate = b.date; }
+    }
+    const net = exit / entry - 1 - FRICTION_RT;
+    rets.push(net);
+    const se = spyClose(entryDate), sx = spyClose(exitDate);
+    spyRets.push(se && sx ? sx / se - 1 : 0);
+  }
+
+  if (rets.length === 0) return { trades: 0, winRate: 0, profitFactor: 0, avgNetReturn: 0, avgSpyReturn: 0, excessVsSpy: 0, maxDrawdownPct: 0 };
+  const wins = rets.filter((r) => r > 0);
+  const losses = rets.filter((r) => r <= 0);
+  const grossWin = wins.reduce((a, b) => a + b, 0);
+  const grossLoss = Math.abs(losses.reduce((a, b) => a + b, 0));
+  // equal-weight equity curve for drawdown
+  let eq = 1, peak = 1, maxDD = 0;
+  for (const r of rets) { eq *= 1 + r * 0.02; peak = Math.max(peak, eq); maxDD = Math.max(maxDD, 1 - eq / peak); }
+  return {
+    trades: rets.length,
+    winRate: wins.length / rets.length,
+    profitFactor: grossLoss > 0 ? grossWin / grossLoss : (grossWin > 0 ? 99 : 0),
+    avgNetReturn: mean(rets) * 100,
+    avgSpyReturn: mean(spyRets) * 100,
+    excessVsSpy: (mean(rets) - mean(spyRets)) * 100,
+    maxDrawdownPct: maxDD * 100,
+  };
+}
+
+function avg(bars: Bar[], idx: number, n: number): number { let s = 0; for (let i = idx - n + 1; i <= idx; i++) s += bars[i].close; return s / n; }
+function avgVol(bars: Bar[], idx: number, n: number): number { let s = 0; for (let i = idx - n + 1; i <= idx; i++) s += bars[i].volume; return s / n; }
+function mean(a: number[]): number { return a.reduce((x, y) => x + y, 0) / a.length; }
+function daysBetween(a: string, b: string): number { return Math.abs((new Date(b).getTime() - new Date(a).getTime()) / 86400_000); }

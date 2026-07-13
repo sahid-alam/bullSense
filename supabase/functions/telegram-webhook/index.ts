@@ -55,8 +55,9 @@ const HELP = [
   "/calibration — does higher conviction actually win more?",
   "/overrides — does overruling the system help or hurt?",
   "/add `SYM QTY COST [STOP]` — log a position you already own (Position Intake)",
+  "/sold `SYMBOL QTY [PRICE]` — record a sale, realize P&L, reduce your book",
   "/stop `SYMBOL PRICE` — set an invalidation (e.g. `/stop CUPID.NS 195`)",
-  "/remove `SYMBOL` — drop a position from your book (e.g. after selling)",
+  "/remove `SYMBOL` — drop a position without recording a sale (prefer /sold)",
   "/pause — halt new signals & alerts (archives keep running)",
   "/resume — resume the engine",
   "/help — this list",
@@ -281,6 +282,64 @@ async function handle(text: string, chatId: number): Promise<string> {
       `Risk to invalidation ${s.invalidation_price}: ~${(Math.abs(entry - Number(s.invalidation_price)) * qty).toFixed(0)} (${(riskBudgetPct * 100).toFixed(1)}% of equity).${overrideNote}\n` +
       (guards.length ? "\n" + guards.join("\n") + "\n" : "") +
       `Your P&L on this trade is now tracked vs the engine's — see /pnl.`;
+  }
+
+  if (cmd === "/sold") {
+    // Record a sale of a book holding: /sold SYMBOL QTY [PRICE]
+    // Realizes P&L against average cost, reduces (or closes) the holding, logs an audit event.
+    if (args.length < 2) return "Usage: `/sold SYMBOL QTY [PRICE]` — records shares you sold, realizes the P&L, and reduces your book.\ne.g. `/sold CUPID.NS 20 210`";
+    const symbol = args[0].toUpperCase();
+    const sellQty = Number(args[1]);
+    const price = args[2] !== undefined ? Number(args[2]) : null;
+    if (!isFinite(sellQty) || sellQty <= 0) return "QTY must be a positive number.";
+    if (price !== null && (!isFinite(price) || price <= 0)) return "PRICE must be a positive number.";
+
+    const rows = await sql`
+      select b.profile_id, b.qty, b.cost_basis, b.invalidation_price
+      from book b join profiles p on p.id = b.profile_id
+      where p.telegram_chat_id = ${String(chatId)} and b.symbol = ${symbol} and b.kind = 'holding'
+      limit 1`;
+    if (rows.length === 0) return `No holding *${symbol}* in your book. Check the symbol (NSE names end in .NS), or see /book.`;
+    const h = rows[0];
+    const held = Number(h.qty);
+    if (sellQty > held + 1e-9) return `You only hold *${held}* ${symbol} — can't sell ${sellQty}. Sell ≤ ${held}, or use /book to check.`;
+
+    const cur = symbol.endsWith(".NS") ? "₹" : "$";
+    const cost = Number(h.cost_basis);
+    const remaining = held - sellQty;
+    const closing = remaining <= 1e-9;
+    const realized = price !== null && isFinite(cost) ? (price - cost) * sellQty : null;
+
+    if (closing) {
+      await sql`delete from book b using profiles p
+        where b.profile_id = p.id and p.telegram_chat_id = ${String(chatId)}
+          and b.symbol = ${symbol} and b.kind = 'holding'`;
+    } else {
+      // cost_basis is average cost per share — a sale doesn't change it, only qty.
+      await sql`update book b set qty = ${remaining}
+        from profiles p
+        where b.profile_id = p.id and p.telegram_chat_id = ${String(chatId)}
+          and b.symbol = ${symbol} and b.kind = 'holding'`;
+    }
+
+    const pnlTxt = realized !== null
+      ? `${realized >= 0 ? "+" : "−"}${cur}${Math.abs(realized).toFixed(0)}`
+      : "not recorded (no sale price)";
+    await sql`insert into book_events (profile_id, symbol, kind, triage, summary)
+      values (${h.profile_id}, ${symbol}, 'sale', 'fyi',
+        ${`Sold ${sellQty} @ ${price ?? "?"} vs cost ${cost}. Realized ${pnlTxt}. ${closing ? "Position closed." : remaining + " left."}`})`;
+
+    const lines = [`✅ Sold *${sellQty}* ${symbol}${price !== null ? ` @ ${price}` : ""}.`];
+    if (realized !== null) {
+      const pct = cost > 0 ? (realized / (cost * sellQty)) * 100 : 0;
+      lines.push(`Realized P&L: *${pnlTxt}*${cost > 0 ? ` (${pct >= 0 ? "+" : ""}${pct.toFixed(1)}% on this lot)` : ""}.`);
+    } else {
+      lines.push("_Tip: pass the sale price next time — `/sold SYM QTY PRICE` — to realize P&L._");
+    }
+    lines.push(closing
+      ? "Position fully closed and removed from your book."
+      : `*${remaining}* ${symbol} still held${h.invalidation_price ? ` · stop ${h.invalidation_price}` : " · ⚠️ no stop set"}. The Watchtower keeps guarding it.`);
+    return lines.join("\n");
   }
 
   if (cmd === "/dossier") {

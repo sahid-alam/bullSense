@@ -30,18 +30,19 @@ The autonomous US engine, live on GitHub Actions + Supabase at ~$0/mo, all jobs 
 *Goal: make the desk unable to die silently, and start hoarding the unbackfillable India data before any India strategy needs it. Small, boring, highest time-sensitivity in the whole plan.*
 
 **A0.1 — Operational hardening**
-- ⬜ Dead-man's switch — nightly pings an external monitor (healthchecks.io free tier); it alerts Telegram if the engine goes silent ~36h. *External on purpose — survives GitHub disabling our workflows.*
-- ⬜ Failure paging — every job's catch block pages operators on Telegram the same hour (today it only writes a `job_runs` row).
+- ⬜ Dead-man's switch — nightly pings an external monitor (healthchecks.io free tier); it alerts Telegram if the engine goes silent ~36h. *External on purpose — survives GitHub disabling our workflows.* **(needs a healthchecks.io account — operator step)**
+- 🔨 Failure paging — ✅ done for the Archivist (0-row capture pages Telegram); ⬜ still to extend to nightly/hype-sweep/lab catch blocks.
 - ⬜ Price-provider fallback — abstract `fetchDailyBars` behind one interface; add Stooq (US) / bhavcopy (`.NS`) fallback when Yahoo fails.
 - ⬜ Weekly DB backup — scheduled `pg_dump` → Supabase Storage. The receipts are irreplaceable.
 - ⬜ Key rotation (operator action — the shared keys from setup).
 
-**A0.2 — The India Archivist** *(the time-sensitive one)*
-- ⬜ `src/providers/nse.ts` — fetch daily NSE bhavcopy (incl. **delivery %**), F&O bhavcopy (**open interest**), **FII/DII** flows, **India VIX**.
-- ⬜ New tables: `nse_bars`, `nse_delivery`, `nse_fno_oi`, `fii_dii_flows`, `india_vix`.
-- ⬜ `src/jobs/india-archive.ts` + a GitHub Action (~15:30 UTC, after NSE publishes ~8pm IST).
+**A0.2 — The India Archivist** *(the time-sensitive one)* — ✅ **SHIPPED & verified in CI**
+- ✅ `src/providers/nse.ts` — equity bars + **delivery %** (sec_bhavdata_full) + **FII/DII** flows. *(India VIX/NIFTY are backfillable from Yahoo anytime, so fetched live by India Radar, not archived. F&O OI = fast-follow: needs zip + per-underlying aggregation.)*
+- ✅ Tables `nse_equity` / `fii_dii_flows` / `india_archive_runs`; keyed on the in-file date (idempotent).
+- ✅ `src/jobs/india-archive.ts` (+ `--backfill`) + daily GitHub Action 15:30 UTC. Verified in CI: 3,258 rows/day, delivery % populated, FII/DII landing. 26 trading days backfilled.
+- ⬜ Fast-follow: throttled deep-backfill (rate-limit-aware), F&O open-interest capture.
 
-**Exit bar:** engine can't fail silently (a killed nightly pages within 36h), and the India archive is accreting daily. **Nothing downstream depends on strategy quality — pure infrastructure.**
+**Exit bar:** ~~India archive accreting daily~~ ✅ **met** · engine can't fail silently — A0.1 hardening remaining.
 
 ---
 

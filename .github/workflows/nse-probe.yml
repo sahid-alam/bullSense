@@ -1,0 +1,46 @@
+name: nse-probe
+# Throwaway viability probe (A0): does NSE data fetch WORK from a GitHub Actions runner?
+# CI runs on Azure IPs; NSE blocks datacenter/non-Indian IPs aggressively. If this fails,
+# we reshape the Archivist (mirror / third-party) BEFORE building on these sources.
+# Delete this workflow once the Archivist is proven.
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe all four India data sources
+        run: |
+          UA="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36"
+          # last weekday (Mon-Fri) — NSE has no weekend files
+          for d in 1 2 3 4 5; do
+            dow=$(date -u -d "-${d} days" +%u)
+            if [ "$dow" -le 5 ]; then D=$(date -u -d "-${d} days" +%Y%m%d); DD=$(date -u -d "-${d} days" +%d%m%Y); break; fi
+          done
+          echo "Probing for trading day ~ $D ($DD)"
+          echo "runner public IP: $(curl -s https://api.ipify.org || echo unknown)"
+          echo ""
+
+          echo "=== 1. Equity + delivery (sec_bhavdata_full, plain CSV) ==="
+          curl -s -o eq.csv -w "  HTTP %{http_code} · %{size_download}b\n" -H "User-Agent: $UA" \
+            "https://nsearchives.nseindia.com/products/content/sec_bhavdata_full_${DD}.csv"
+          echo "  header: $(head -1 eq.csv | cut -c1-80)"
+          echo ""
+
+          echo "=== 2. F&O UDiFF bhavcopy (open interest, .zip) ==="
+          curl -s -o /dev/null -w "  HTTP %{http_code} · %{size_download}b\n" -H "User-Agent: $UA" \
+            "https://nsearchives.nseindia.com/content/fo/BhavCopy_NSE_FO_0_0_0_${D}_F_0000.csv.zip"
+          echo ""
+
+          echo "=== 3. FII/DII (cookie-primed JSON from www.nseindia.com — the anti-bot host) ==="
+          curl -s -c cj.txt -H "User-Agent: $UA" "https://www.nseindia.com/" -o /dev/null
+          curl -s -b cj.txt -H "User-Agent: $UA" -H "Referer: https://www.nseindia.com/" \
+            -w "\n  HTTP %{http_code}\n" "https://www.nseindia.com/api/fiidiiTradeReact" | head -c 400
+          echo ""
+
+          echo "=== 4. India VIX + NIFTY (Yahoo) ==="
+          curl -s -o /dev/null -w "  VIX  HTTP %{http_code}\n" -H "User-Agent: $UA" \
+            "https://query1.finance.yahoo.com/v8/finance/chart/%5EINDIAVIX?range=5d&interval=1d"
+          curl -s -o /dev/null -w "  NIFTY HTTP %{http_code}\n" -H "User-Agent: $UA" \
+            "https://query1.finance.yahoo.com/v8/finance/chart/%5ENSEI?range=5d&interval=1d"

@@ -116,6 +116,14 @@ export async function getJobHealth(days = 1): Promise<Array<{ job: string; statu
   }) ?? [];
 }
 
+/** When did this job last complete successfully? (watchdog / dead-man's switch.) */
+export async function latestOkRunAt(job: string): Promise<Date | null> {
+  const rows = await rest(`job_runs?select=started_at&job=eq.${encodeURIComponent(job)}&status=eq.ok&order=started_at.desc&limit=1`, {
+    method: "GET", headers: { Prefer: "return=representation" },
+  });
+  return rows?.[0]?.started_at ? new Date(rows[0].started_at) : null;
+}
+
 export interface GenomeRow { id: string; family: string; version: number; definition: any; status: string }
 
 export async function getLiveGenomes(family?: string): Promise<GenomeRow[]> {
@@ -445,6 +453,12 @@ export async function upsertNseEquity(rows: any[]): Promise<void> {
 export async function upsertFiiDii(rows: any[]): Promise<void> {
   if (rows.length === 0) return;
   await rest("fii_dii_flows?on_conflict=trade_date,category", { method: "POST", body: JSON.stringify(rows), preferUpsert: true });
+}
+
+export async function upsertFnoOi(rows: any[]): Promise<void> {
+  for (let i = 0; i < rows.length; i += 500) {
+    await rest("nse_fno_oi?on_conflict=underlying,trade_date", { method: "POST", body: JSON.stringify(rows.slice(i, i + 500)), preferUpsert: true });
+  }
 }
 
 /** Most recent equity trade_date already archived (for skip-if-present + freshness). */

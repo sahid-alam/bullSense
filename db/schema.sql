@@ -157,6 +157,15 @@ create table if not exists fii_dii_flows (
   primary key (trade_date, category)
 );
 
+create table if not exists nse_fno_oi (            -- F&O open interest aggregated per underlying
+  underlying text not null, trade_date date not null,
+  futures_oi bigint, call_oi bigint, put_oi bigint, total_oi bigint,
+  pcr numeric,                                     -- put/call OI ratio (sentiment gauge)
+  futures_oi_chg bigint,
+  primary key (underlying, trade_date)
+);
+create index if not exists nse_fno_oi_date_idx on nse_fno_oi (trade_date);
+
 create table if not exists india_archive_runs (
   id bigserial primary key, ran_at timestamptz not null default now(),
   trade_date date, equity_rows int, fii_dii_rows int, status text, detail text

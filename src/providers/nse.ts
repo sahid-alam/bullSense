@@ -75,6 +75,52 @@ export async function fetchEquityDelivery(d: Date): Promise<{ contentDate: strin
   return { contentDate, rows };
 }
 
+export interface FnoOiRow {
+  underlying: string; trade_date: string;
+  futures_oi: number; call_oi: number; put_oi: number; total_oi: number;
+  pcr: number | null; futures_oi_chg: number;
+}
+
+/** F&O open interest for one UTC date, aggregated per underlying (futures / call / put OI + PCR). */
+export async function fetchFnoOi(d: Date): Promise<{ contentDate: string; rows: FnoOiRow[] } | null> {
+  const ymd = `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}`;
+  const url = `https://nsearchives.nseindia.com/content/fo/BhavCopy_NSE_FO_0_0_0_${ymd}_F_0000.csv.zip`;
+  const res = await fetch(url, { headers: { "User-Agent": UA } });
+  if (!res.ok) return null;
+  const { unzipSync, strFromU8 } = await import("fflate");
+  const files = unzipSync(new Uint8Array(await res.arrayBuffer()));
+  const csv = Object.values(files)[0];
+  if (!csv) return null;
+  const lines = strFromU8(csv).trim().split("\n");
+  if (lines.length < 2) return null;
+
+  const h = lines[0].split(",").map((x) => x.trim());
+  const iSym = h.indexOf("TckrSymb"), iTp = h.indexOf("FinInstrmTp"), iOpt = h.indexOf("OptnTp");
+  const iOi = h.indexOf("OpnIntrst"), iChg = h.indexOf("ChngInOpnIntrst"), iDate = h.indexOf("TradDt");
+
+  const agg = new Map<string, FnoOiRow>();
+  let contentDate: string | null = null;
+  for (let i = 1; i < lines.length; i++) {
+    const c = lines[i].split(",");
+    if (c.length < h.length) continue;
+    const td = c[iDate]?.trim();
+    if (!td) continue;
+    if (!contentDate) contentDate = td;
+    const sym = c[iSym].trim();
+    const oi = num(c[iOi]) ?? 0, chg = num(c[iChg]) ?? 0;
+    const tp = c[iTp].trim(), opt = c[iOpt].trim();
+    let r = agg.get(sym);
+    if (!r) { r = { underlying: sym, trade_date: td, futures_oi: 0, call_oi: 0, put_oi: 0, total_oi: 0, pcr: null, futures_oi_chg: 0 }; agg.set(sym, r); }
+    r.total_oi += oi;
+    if (tp === "IDF" || tp === "STF") { r.futures_oi += oi; r.futures_oi_chg += chg; }
+    else if (opt === "CE") r.call_oi += oi;
+    else if (opt === "PE") r.put_oi += oi;
+  }
+  if (!contentDate) return null;
+  const rows = [...agg.values()].map((r) => ({ ...r, pcr: r.call_oi > 0 ? Math.round((r.put_oi / r.call_oi) * 1000) / 1000 : null }));
+  return { contentDate, rows };
+}
+
 export interface FiiDiiRow { trade_date: string; category: "FII" | "DII"; buy_value: number | null; sell_value: number | null; net_value: number | null }
 
 /** Latest FII/DII net flows. The anti-bot host needs a homepage cookie first. */

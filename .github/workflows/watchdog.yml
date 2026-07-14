@@ -1,0 +1,23 @@
+name: watchdog
+# Dead-man's switch (A0.1) — verify the critical jobs actually ran; page if the desk is silent.
+# Runs twice daily, offset from the jobs it watches.
+on:
+  schedule:
+    - cron: "0 3,17 * * *"   # 03:00 & 17:00 UTC, every day
+  workflow_dispatch:
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      - name: Check the desk is alive
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          HEALTHCHECKS_URL: ${{ secrets.HEALTHCHECKS_URL }}
+        run: npx tsx src/jobs/watchdog.ts

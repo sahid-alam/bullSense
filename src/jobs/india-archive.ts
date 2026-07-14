@@ -8,8 +8,8 @@
  * crown jewel; FII/DII is isolated in try/catch so its fragility can't fail the equity run.
  * A zero-equity capture pages the operators on Telegram — the archive must not die silently.
  */
-import { fetchEquityDelivery, fetchFiiDii } from "../providers/nse.js";
-import { storeAvailable, upsertNseEquity, upsertFiiDii, latestNseEquityDate, insertIndiaArchiveRun } from "../providers/store.js";
+import { fetchEquityDelivery, fetchFiiDii, fetchFnoOi } from "../providers/nse.js";
+import { storeAvailable, upsertNseEquity, upsertFiiDii, upsertFnoOi, latestNseEquityDate, insertIndiaArchiveRun } from "../providers/store.js";
 import { pageOperators } from "../lib/alert.js";
 
 try { process.loadEnvFile(".env"); } catch { /* CI injects env directly */ }
@@ -17,12 +17,18 @@ try { process.loadEnvFile(".env"); } catch { /* CI injects env directly */ }
 const iso = (d: Date) => `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 const daysAgo = (n: number) => { const d = new Date(); d.setUTCDate(d.getUTCDate() - n); return d; };
 
-/** Capture one calendar day. Returns rows written (0 = no NSE file / weekend / holiday). */
-async function captureDay(d: Date): Promise<{ date: string | null; equityRows: number }> {
+/** Capture one calendar day. Returns rows written (0 equity = no NSE file / weekend / holiday). */
+async function captureDay(d: Date): Promise<{ date: string | null; equityRows: number; fnoRows: number }> {
   const eq = await fetchEquityDelivery(d);
-  if (!eq) return { date: null, equityRows: 0 };
+  if (!eq) return { date: null, equityRows: 0, fnoRows: 0 };
   await upsertNseEquity(eq.rows);
-  return { date: eq.contentDate, equityRows: eq.rows.length };
+  // F&O open interest — isolated: never let its zip/parse fail the equity capture.
+  let fnoRows = 0;
+  try {
+    const fno = await fetchFnoOi(d);
+    if (fno) { await upsertFnoOi(fno.rows); fnoRows = fno.rows.length; }
+  } catch (e) { console.error("F&O OI capture failed (non-fatal):", e); }
+  return { date: eq.contentDate, equityRows: eq.rows.length, fnoRows };
 }
 
 async function main() {
@@ -35,14 +41,15 @@ async function main() {
     let captured = 0, rows = 0;
     for (let n = days; n >= 0; n--) {
       const r = await captureDay(daysAgo(n));
-      if (r.equityRows > 0) { captured++; rows += r.equityRows; console.log(`  ${r.date}: ${r.equityRows} rows`); }
+      if (r.equityRows > 0) { captured++; rows += r.equityRows; console.log(`  ${r.date}: ${r.equityRows} eq · ${r.fnoRows} F&O`); }
+      await new Promise((res) => setTimeout(res, 400)); // throttle — NSE rate-limits rapid sequential pulls
     }
     console.log(`Backfill done: ${captured} trading days, ${rows} equity rows.`);
     return;
   }
 
   // Default: the latest available trading day (walk back until NSE has a file).
-  let day: { date: string | null; equityRows: number } = { date: null, equityRows: 0 };
+  let day = { date: null as string | null, equityRows: 0, fnoRows: 0 };
   for (let n = 0; n <= 6 && day.equityRows === 0; n++) day = await captureDay(daysAgo(n));
 
   // FII/DII — isolated: its anti-bot host is the fragile one; never let it fail the equity run.
@@ -54,7 +61,7 @@ async function main() {
   } catch (e) { console.error("FII/DII capture failed (non-fatal):", e); }
 
   const status = day.equityRows > 0 ? "ok" : "error";
-  const detail = `equity ${day.equityRows} rows (${day.date ?? "none"}) · FII/DII ${fiiDiiRows}`;
+  const detail = `equity ${day.equityRows} rows (${day.date ?? "none"}) · F&O ${day.fnoRows} · FII/DII ${fiiDiiRows}`;
   await insertIndiaArchiveRun({ trade_date: day.date, equity_rows: day.equityRows, fii_dii_rows: fiiDiiRows, status, detail });
 
   if (day.equityRows === 0) {

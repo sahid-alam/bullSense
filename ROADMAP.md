@@ -30,19 +30,20 @@ The autonomous US engine, live on GitHub Actions + Supabase at ~$0/mo, all jobs 
 *Goal: make the desk unable to die silently, and start hoarding the unbackfillable India data before any India strategy needs it. Small, boring, highest time-sensitivity in the whole plan.*
 
 **A0.1 — Operational hardening**
-- ⬜ Dead-man's switch — nightly pings an external monitor (healthchecks.io free tier); it alerts Telegram if the engine goes silent ~36h. *External on purpose — survives GitHub disabling our workflows.* **(needs a healthchecks.io account — operator step)**
-- ✅ Failure paging — shared `pageOperators`/`failJob` (`src/lib/alert.ts`) wired into nightly, hype-sweep, briefing, dossier, weekly, lab, backup + the Archivist. A failed job now pages Telegram the same run.
-- ✅ Price resilience — `fetchDailyBars` now tries both Yahoo hosts (query1→query2) before failing. *(deeper Stooq/bhavcopy second-provider fallback = fast-follow if Yahoo ever fully fails.)*
-- ✅ Weekly backup — `src/jobs/backup.ts` + Sunday cron: logical snapshot of the irreplaceable tables (receipts, book, beliefs, fund history) → Supabase Storage `backups/`. *(large point-in-time archives get the R2 offload, per plan.)*
+- ✅ Dead-man's switch — `src/jobs/watchdog.ts` + twice-daily cron: pages Telegram if nightly or the India archive is stale (>4d, weekend-safe). Also pings `HEALTHCHECKS_URL` if set — so the moment the operator adds a healthchecks.io check as a repo secret, the external liveness layer activates with zero code change.
+- ✅ Failure paging — shared `pageOperators`/`failJob` (`src/lib/alert.ts`) wired into nightly, hype-sweep, briefing, dossier, weekly, lab, backup, watchdog + the Archivist.
+- ✅ Price resilience — `fetchDailyBars` tries both Yahoo hosts (query1→query2) before failing.
+- ✅ Weekly backup — `src/jobs/backup.ts` + Sunday cron → Supabase Storage `backups/` (verified in CI).
 - ⬜ Key rotation (operator action — the shared keys from setup).
+- ⬜ *(optional)* healthchecks.io account → add `HEALTHCHECKS_URL` secret to arm the external layer.
 
 **A0.2 — The India Archivist** *(the time-sensitive one)* — ✅ **SHIPPED & verified in CI**
-- ✅ `src/providers/nse.ts` — equity bars + **delivery %** (sec_bhavdata_full) + **FII/DII** flows. *(India VIX/NIFTY are backfillable from Yahoo anytime, so fetched live by India Radar, not archived. F&O OI = fast-follow: needs zip + per-underlying aggregation.)*
-- ✅ Tables `nse_equity` / `fii_dii_flows` / `india_archive_runs`; keyed on the in-file date (idempotent).
-- ✅ `src/jobs/india-archive.ts` (+ `--backfill`) + daily GitHub Action 15:30 UTC. Verified in CI: 3,258 rows/day, delivery % populated, FII/DII landing. 26 trading days backfilled.
-- ⬜ Fast-follow: throttled deep-backfill (rate-limit-aware), F&O open-interest capture.
+- ✅ `src/providers/nse.ts` — equity bars + **delivery %** (sec_bhavdata_full) + **FII/DII** flows + **F&O open interest** aggregated per underlying (futures/call/put OI + PCR, via fflate zip). *(India VIX/NIFTY fetched live from Yahoo by India Radar, not archived — reconstructable.)*
+- ✅ Tables `nse_equity` / `fii_dii_flows` / `nse_fno_oi` / `india_archive_runs`; keyed on the in-file date (idempotent).
+- ✅ `src/jobs/india-archive.ts` (+ throttled `--backfill`) + daily GitHub Action 15:30 UTC. Verified in CI. Delivery % + FII/DII + F&O PCR all landing (NIFTY PCR trend 0.81→1.43/wk).
+- ⬜ Fast-follow *(optional)*: deeper multi-year backfill run (throttle now in place); historical F&O backfill.
 
-**Exit bar:** ~~India archive accreting daily~~ ✅ **met** · engine can't fail silently — A0.1 hardening remaining.
+**Exit bar:** ✅ **MET** — India archive accreting daily (equity+delivery, FII/DII, F&O OI) AND the engine can't fail silently (failure paging + watchdog + backup). **A0 complete** but for the two operator actions (key rotation, optional healthchecks URL).
 
 ---
 

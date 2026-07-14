@@ -70,25 +70,32 @@ regime+gate banner · the replay trade table · the stats row (win rate / PF / a
 SPY) · the live-decision card · the "right now" verdict · the stated DTC-constant assumption.
 First-class loading and honest empty/failure states.
 
-### M2. Auth for the MVP — the one decision that's yours
+### M2. Auth for the MVP — DECIDED: none for now
 
-**Recommended:** ship the Test Lab + read-only screens behind a **single shared gate** now
-(Vercel password protection, or one shared Supabase login), and bring **real per-operator
-email + OTP + server-scoped money queries** only when **My Book** (1b) lands. **Formal RLS
-policies = flagged fast-follow**, not an MVP blocker (money queries are scoped by
-`profile_id` server-side in the meantime). This is a data-exposure call — surfaced as an open
-question, not decided unilaterally.
+**Operator decision (2026-07-14):** *"build an early UI so we can test the working of the
+current engine. We can add the security later. Right now we just need a platform that acts as
+an intermediate for us to test our data."*
+
+So the MVP ships **with no auth** — a private testing/inspection tool. Consequences to hold:
+- **`SUPABASE_SECRET_KEY` still stays server-only** (never `NEXT_PUBLIC_`, never a client
+  component). No-auth means no login, *not* leaking the god key to the browser — all data
+  goes through server components / route handlers.
+- Keep the deploy **unindexed** (`X-Robots-Tag: noindex`) and treat the URL as unlisted.
+- Money-layer screens (My Book) still get built **profile-scoped** so they're correct per
+  operator, just not access-controlled yet.
+- **Security is a named fast-follow phase**, not dropped: shared/again per-operator email+OTP
+  + RLS land once the platform has proven useful. Tracked, deferred — not forgotten.
 
 ### M3. MVP build order
 
-0. **Scaffold** — Next.js App Router on Vercel · shared gate · server-only Supabase client
-   (secret key) · the two shared components (Radar dial, signal card).
-1. **`runBench` refactor** + CLI re-pointed at it (prove no-drift: CLI output unchanged).
+0. **Scaffold** — Next.js App Router on Vercel · no auth (per M2) · server-only Supabase
+   client (secret key) · the two shared components (Radar dial, signal card).
+1. **`runBench` refactor** + CLI re-pointed at it (prove no-drift: CLI output unchanged). ← *do first; framework-independent*
 2. **Test Lab screen** — server action → `runBench` → results view. *The deliverable that matters most.*
 3. **Read-only screens** — Engine Console → Radar → Signals (all populated today).
-4. **(optional 1b)** email+OTP auth + **My Book** + Position Intake, money queries server-scoped by profile.
+4. **(optional 1b)** **My Book** + Position Intake, money queries server-scoped by profile (still no access control).
 
-Everything past this = the full plan (§C), unchanged.
+Everything past this = the full plan (§C) + the deferred **security phase** (email+OTP + RLS).
 
 ---
 

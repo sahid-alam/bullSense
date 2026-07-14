@@ -191,6 +191,19 @@ create table if not exists advisor_card_requests (
 
 -- India Screener RPC (screener_india) defined in migration screener_india_rpc.
 
+-- India Radar (A2) — separate table from regime_scores (US) so the two markets' hysteresis
+-- and latest-read logic can never interleave. Populated by src/jobs/india-radar.ts, chained
+-- after india-archive so breadth reflects same-day data. RPC india_breadth() defined in
+-- migration india_regime_scores (set-based % of archived EQ symbols above their N-day MA).
+create table if not exists india_regime_scores (
+  date          date primary key,
+  score         numeric not null,
+  regime        text not null,
+  components    jsonb not null,
+  narrative     text,
+  prev_score    numeric
+);
+
 create table if not exists book_events (
   id            bigserial primary key,
   profile_id    text not null references profiles(id),

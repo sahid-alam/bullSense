@@ -515,3 +515,42 @@ export async function operatorChatIds(): Promise<string[]> {
   const rows = await rest("profiles?select=telegram_chat_id&telegram_chat_id=not.is.null", { method: "GET", headers: { Prefer: "return=representation" } });
   return [...new Set((rows ?? []).map((r: any) => r.telegram_chat_id).filter(Boolean))] as string[];
 }
+
+// ===== India Radar (A2) — own table, deliberately separate from regime_scores (US) =====
+
+export async function upsertIndiaRegimeScore(row: {
+  date: string; score: number; regime: string; components: object; narrative?: string | null; prev_score?: number | null;
+}): Promise<void> {
+  await rest("india_regime_scores?on_conflict=date", { method: "POST", body: JSON.stringify([row]), preferUpsert: true });
+}
+
+export async function getRecentIndiaRegimes(limit = 5): Promise<Array<{ date: string; score: number; regime: string }>> {
+  return await rest(`india_regime_scores?select=date,score,regime&order=date.desc&limit=${limit}`, {
+    method: "GET", headers: { Prefer: "return=representation" },
+  }) ?? [];
+}
+
+export async function getLatestIndiaRegime(): Promise<{ date: string; score: number; regime: string; components: any; narrative: string | null } | null> {
+  const rows = await rest("india_regime_scores?select=date,score,regime,components,narrative&order=date.desc&limit=1", {
+    method: "GET", headers: { Prefer: "return=representation" },
+  });
+  return rows?.[0] ?? null;
+}
+
+/** % of archived liquid NSE EQ symbols above their own N-day MA (india_breadth RPC — set-based in SQL). */
+export async function indiaBreadth(windowDays = 20): Promise<{ aboveMa: number; total: number; pct: number } | null> {
+  const rows = await rest("rpc/india_breadth", { method: "POST", body: JSON.stringify({ window_days: windowDays }) });
+  const r = rows?.[0];
+  if (!r || r.total === 0) return null;
+  return { aboveMa: Number(r.above_ma), total: Number(r.total), pct: Number(r.pct) };
+}
+
+/** Daily net FII+DII flow (INR cr), oldest→newest. Capture is forward-only from 2026-07-13 — short by design. */
+export async function fiiDiiDailyNet(limit = 60): Promise<Array<{ date: string; net: number }>> {
+  const rows = await rest(`fii_dii_flows?select=trade_date,net_value&order=trade_date.desc&limit=${limit * 2}`, {
+    method: "GET", headers: { Prefer: "return=representation" },
+  });
+  const byDate = new Map<string, number>();
+  for (const r of rows ?? []) byDate.set(r.trade_date, (byDate.get(r.trade_date) ?? 0) + Number(r.net_value));
+  return [...byDate.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([date, net]) => ({ date, net }));
+}

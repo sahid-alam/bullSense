@@ -9,7 +9,7 @@
  * this read predicts anything. The LLM only narrates the fixed numbers; it never decides.
  */
 import { fetchDailyBars, latestClose, type Bar } from "../providers/prices.js";
-import { getLatestRegime, nseDeliveryTrend, nseFnoLatest, storeAvailable, unmarkedAdvisorCards, markAdvisorCard } from "../providers/store.js";
+import { getLatestRegime, getLatestIndiaRegime, nseDeliveryTrend, nseFnoLatest, storeAvailable, unmarkedAdvisorCards, markAdvisorCard } from "../providers/store.js";
 import { sizePosition, type Regime, type RiskPrefs } from "./treasury.js";
 import { DEFAULT_PREFS } from "./benchcore.js";
 import { complete } from "../providers/llm.js";
@@ -70,20 +70,34 @@ export async function buildAdvisorCard(symbol: string, opts: { equity?: number; 
   const marketRead = { label: "", facts: [] as string[], cautious: false };
   let benchmarkClose: number | null = null;
   if (isNSE) {
-    // indiaRadar v0 — raw facts only, NOT a published regime label (A2 builds the real India Radar)
-    try {
-      const [nifty, vix] = await Promise.all([fetchDailyBars("^NSEI", "1y"), fetchDailyBars("^INDIAVIX", "1y")]);
-      const nc = nifty.map((b) => b.close), n50 = sma(nc, 50);
-      benchmarkClose = nc[nc.length - 1];
-      const vixLast = vix[vix.length - 1].close;
-      const niftyUp = n50 != null && nc[nc.length - 1] > n50;
-      const vixCalm = vixLast < 15, vixHigh = vixLast > 22;
-      marketRead.facts.push(`NIFTY ${niftyUp ? "above" : "below"} its 50-day average`);
-      marketRead.facts.push(`India VIX ${vixLast.toFixed(1)} (${vixCalm ? "calm" : vixHigh ? "elevated" : "moderate"})`);
-      marketRead.cautious = !niftyUp || vixHigh;
-      marketRead.label = `India (indiaRadar v0) — ${marketRead.cautious ? "cautious" : "constructive"}`;
-      regime = vixHigh ? "risk_off" : niftyUp ? "risk_on" : "neutral";
-    } catch { marketRead.label = "India (market read unavailable)"; }
+    let usedIndiaRadar = false;
+    if (storeAvailable()) {
+      const r = await getLatestIndiaRegime();
+      if (r) {
+        usedIndiaRadar = true;
+        regime = r.regime as Regime;
+        marketRead.label = `India — ${r.regime.replace("_", "-").toUpperCase()} (India Radar ${r.score}/100)`;
+        marketRead.facts.push(r.narrative ?? "");
+        marketRead.cautious = r.regime === "risk_off";
+      }
+    }
+    try { const nifty = await fetchDailyBars("^NSEI", "1mo" as any); benchmarkClose = nifty[nifty.length - 1]?.close ?? null; } catch { /* best-effort */ }
+    if (!usedIndiaRadar) {
+      // Fallback only — the India Radar job hasn't populated a score yet (or the store is down).
+      try {
+        const [nifty, vix] = await Promise.all([fetchDailyBars("^NSEI", "1y"), fetchDailyBars("^INDIAVIX", "1y")]);
+        const nc = nifty.map((b) => b.close), n50 = sma(nc, 50);
+        benchmarkClose = nc[nc.length - 1];
+        const vixLast = vix[vix.length - 1].close;
+        const niftyUp = n50 != null && nc[nc.length - 1] > n50;
+        const vixCalm = vixLast < 15, vixHigh = vixLast > 22;
+        marketRead.facts.push(`NIFTY ${niftyUp ? "above" : "below"} its 50-day average`);
+        marketRead.facts.push(`India VIX ${vixLast.toFixed(1)} (${vixCalm ? "calm" : vixHigh ? "elevated" : "moderate"})`);
+        marketRead.cautious = !niftyUp || vixHigh;
+        marketRead.label = `India (fallback read — India Radar not yet populated) — ${marketRead.cautious ? "cautious" : "constructive"}`;
+        regime = vixHigh ? "risk_off" : niftyUp ? "risk_on" : "neutral";
+      } catch { marketRead.label = "India (market read unavailable)"; }
+    }
   } else {
     if (storeAvailable()) {
       const r = await getLatestRegime();

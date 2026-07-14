@@ -134,19 +134,25 @@ async function main() {
   // Personal funds — settle each human's own positions (opened via /took)
   const personal = await runPersonalFunds();
 
-  // Benchmark + risk-adjusted fund metrics (engine + any profile with positions)
-  await upsertBenchmark(asOf, spy[spy.length - 1].close);
+  // Benchmark + risk-adjusted fund metrics (engine + any profile with positions).
+  // NIFTY is additive alongside SPY — real money is INR/NSE, so personal books read
+  // against NIFTY too, without disturbing the existing SPY path (A2 India friction model).
+  let niftyClose: number | null = null;
+  try { const nifty = await fetchDailyBars("^NSEI", "1mo" as any); niftyClose = nifty[nifty.length - 1]?.close ?? null; } catch { /* best-effort */ }
+  await upsertBenchmark(asOf, spy[spy.length - 1].close, niftyClose);
   const metricProfiles = ["engine", ...(await getProfilesWithPositions())].filter((v, i, a) => a.indexOf(v) === i);
   for (const pid of metricProfiles) {
     const series = await getEquitySeries(pid);
     if (series.length < 3) continue;
     const m = perfMetrics(series.map((r) => r.equity));
-    // SPY total return over the same window (buy-hold benchmark)
+    // SPY / NIFTY total return over the same window (buy-hold benchmarks)
     const bench = await getBenchmarkSeries(series[0].date);
     const spyRet = bench.length >= 2 ? (bench[bench.length - 1].spy_close / bench[0].spy_close - 1) * 100 : null;
+    const niftyBench = bench.filter((b) => b.nifty_close != null);
+    const niftyRet = niftyBench.length >= 2 ? (niftyBench[niftyBench.length - 1].nifty_close! / niftyBench[0].nifty_close! - 1) * 100 : null;
     await upsertFundMetrics({
       profile_id: pid, date: asOf, days: m.days, total_return_pct: m.totalReturnPct, cagr_pct: m.cagrPct,
-      vol_pct: m.volPct, sharpe: m.sharpe, sortino: m.sortino, max_drawdown_pct: m.maxDrawdownPct, spy_return_pct: spyRet,
+      vol_pct: m.volPct, sharpe: m.sharpe, sortino: m.sortino, max_drawdown_pct: m.maxDrawdownPct, spy_return_pct: spyRet, nifty_return_pct: niftyRet,
     });
   }
 

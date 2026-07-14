@@ -51,6 +51,8 @@ const HELP = [
   "/card `SYMBOL` — advisor card: market · potential · enter/avoid · size · stop · target",
   "/screener — top NSE stocks by momentum + delivery (heuristic ranking)",
   "/fund — engine paper fund: return, Sharpe, drawdown vs SPY",
+  "/myfund — your book: return, Sharpe, drawdown vs NIFTY",
+  "/friction `ENTRY EXIT QTY [DAYS]` — net P&L after India costs + tax",
   "/lab — latest genome re-tuning result",
   "/beliefs — what BullSense currently believes (and recent mind-changes)",
   "/ask `question` — interrogate the analyst about its own data",
@@ -105,6 +107,26 @@ function treasurySuggestedQty(equity: number, conviction: number, entry: number,
   const byRisk = Math.floor((equity * riskPct) / stopDist);
   const byCapital = Math.floor((equity * maxPos) / entry);
   return Math.max(0, Math.min(byRisk, byCapital));
+}
+
+/** India delivery-equity net expectancy (mirrors src/lib/indiaFriction.ts indiaFriction —
+ *  STT/exchange/SEBI/stamp/DP/GST + STCG-or-LTCG, real FY2025-26 rates). Per-trade estimate;
+ *  the LTCG exemption and loss set-off are portfolio-level, not modeled here. */
+function frictionCalc(entry: number, exit: number, qty: number, holdingDays: number) {
+  const buyTurnover = entry * qty, sellTurnover = exit * qty, turnover = buyTurnover + sellTurnover;
+  const stt = turnover * 0.001;
+  const exchangeCharges = turnover * 0.0000297;
+  const sebiFee = turnover * 0.000001;
+  const stampDuty = buyTurnover * 0.00015;
+  const dpCharges = qty > 0 ? 15 * 1.18 : 0;
+  const gst = (exchangeCharges + sebiFee) * 0.18; // brokerage assumed ₹0 (discount-broker delivery)
+  const totalTransactionCosts = stt + exchangeCharges + sebiFee + stampDuty + dpCharges + gst;
+  const grossPnl = (exit - entry) * qty;
+  const preTaxPnl = grossPnl - totalTransactionCosts;
+  const taxRate = holdingDays >= 365 ? 0.125 : 0.20;
+  const taxOwed = preTaxPnl > 0 ? preTaxPnl * taxRate : 0;
+  const netPnl = preTaxPnl - taxOwed;
+  return { grossPnl, totalTransactionCosts, taxRate, taxOwed, netPnl };
 }
 
 /** Pre-trade behavioral guards — the documented ways retail traders lose money,
@@ -398,6 +420,47 @@ async function handle(text: string, chatId: number): Promise<string> {
       excess != null ? `vs SPY: *${excess >= 0 ? "+" : ""}${excess.toFixed(1)}%* (SPY ${Number(f.spy_return_pct).toFixed(1)}%)` : ``,
       ``,
       `_An aggressive strategy has to beat SPY on a risk-adjusted basis, not just make money._`,
+    ].filter(Boolean).join("\n");
+  }
+
+  if (cmd === "/friction") {
+    const [entryS, exitS, qtyS, daysS] = args;
+    const entry = Number(entryS), exit = Number(exitS), qty = Number(qtyS), days = Number(daysS ?? "1");
+    if (!entry || !exit || !qty) return "Usage: `/friction ENTRY EXIT QTY [HOLDING_DAYS]` — e.g. `/friction 1000 1100 50 40`";
+    const f = frictionCalc(entry, exit, qty, days || 1);
+    return [
+      `*India Friction* — ₹${entry} → ₹${exit} × ${qty}, held ${days || 1}d`,
+      ``,
+      `Gross P&L: *₹${f.grossPnl.toFixed(0)}*`,
+      `Transaction costs (STT/exchange/SEBI/stamp/DP/GST): −₹${f.totalTransactionCosts.toFixed(0)}`,
+      `${f.taxOwed > 0 ? `${(days || 1) >= 365 ? "LTCG 12.5%" : "STCG 20%"} on the post-cost gain: −₹${f.taxOwed.toFixed(0)}` : "No capital-gains tax (trade lost money)"}`,
+      `Net P&L: *₹${f.netPnl.toFixed(0)}*`,
+      ``,
+      `_Per-trade estimate, ₹0 brokerage assumed. LTCG exemption + loss set-off are portfolio-level — not modeled per trade._`,
+    ].join("\n");
+  }
+
+  if (cmd === "/myfund") {
+    const profile = await primaryProfileFor(chatId);
+    if (!profile) return "No profile linked to this chat yet.";
+    const m = await sql`select * from fund_metrics where profile_id = ${profile.id} order by date desc limit 1`;
+    const eq = await sql`select equity, drawdown_pct from treasury_state where profile_id = ${profile.id} order by date desc limit 1`;
+    if (m.length === 0 || Number(m[0].days) < 10) {
+      const e = eq[0] ? `Equity *₹${Math.round(Number(eq[0].equity))}*.` : "";
+      return `*Your Book* (${profile.id})\n\n${e}\n_Risk-adjusted stats appear once your equity curve has ~10 days of history — settles nightly from positions taken via /took._`;
+    }
+    const f = m[0];
+    const niftyExcess = f.nifty_return_pct != null ? Number(f.total_return_pct) - Number(f.nifty_return_pct) : null;
+    return [
+      `*Your Book* (${profile.id}, ${f.days} days)`,
+      ``,
+      `Equity: *₹${eq[0] ? Math.round(Number(eq[0].equity)) : "—"}*`,
+      `Total return: *${Number(f.total_return_pct) >= 0 ? "+" : ""}${Number(f.total_return_pct).toFixed(1)}%* · CAGR ${Number(f.cagr_pct).toFixed(0)}%`,
+      `Sharpe *${Number(f.sharpe).toFixed(2)}* · Sortino ${Number(f.sortino).toFixed(2)} · vol ${Number(f.vol_pct).toFixed(0)}%`,
+      `Max drawdown: ${Number(f.max_drawdown_pct).toFixed(1)}%`,
+      niftyExcess != null ? `vs NIFTY: *${niftyExcess >= 0 ? "+" : ""}${niftyExcess.toFixed(1)}%* (NIFTY ${Number(f.nifty_return_pct).toFixed(1)}%)` : `_vs NIFTY: not enough benchmark history yet._`,
+      ``,
+      `_Real INR money benchmarks against NIFTY, not SPY — gross returns only; run /friction on a closed trade for the real net-of-cost number._`,
     ].filter(Boolean).join("\n");
   }
 

@@ -64,7 +64,7 @@ The autonomous US engine, live on GitHub Actions + Supabase at ~$0/mo, all jobs 
 
 *Goal: a real India-native desk, not a US engine pointed at `.NS` tickers. Depends on the archive having accumulated history.*
 
-- ⬜ **India Radar** — regime for the INR book: India VIX (level + trend), NIFTY trend & breadth, FII/DII 5-day net flow, INR/USD + Brent stress → same 0–100 score + hysteresis.
+- ✅ **India Radar** — regime for the INR book: India VIX (level + trend), NIFTY trend & breadth (archive-derived, ~2,400 liquid EQ names above 20DMA), FII/DII 5-day net flow (neutral until 5 days accrete), INR/USD + Brent stress → same 0–100 score + hysteresis, own `india_regime_scores` table. Chained after india-archive in CI; wired into `advisor.ts` replacing the v0 stub. Verified live.
 - ⬜ **India friction model** — net expectancy with real numbers (STT, brokerage, STCG 20% / LTCG 12.5%); personal books benchmark vs **NIFTY**, not SPY.
 - ⬜ **News Sentry** — RSS (Moneycontrol/ET) + NSE corporate announcements on book names → LLM triage → Watchtower events. *Closes the Cupid gap.*
 - ⬜ **Calendar** — earnings, F&O expiry, ex-dividend, RBI/budget dates → Watchtower flags.

@@ -597,6 +597,41 @@ export async function nseEquityBarsForUniverse(symbols: string[]): Promise<Map<s
   return bySymbol;
 }
 
+// ===== Trade post-mortems (A2) =====
+
+export async function closedPositionsNeedingPostmortem(): Promise<Array<{
+  id: number; profileId: string; symbol: string; qty: number; entryPrice: number; entryAt: string;
+  invalidationPrice: number | null; realizedPnl: number | null; signalId: number | null; closedAt: string | null;
+}>> {
+  const [closed, done] = await Promise.all([
+    rest("positions?select=id,profile_id,symbol,qty,entry_price,entry_at,invalidation_price,realized_pnl,signal_id,closed_at&status=eq.closed", { method: "GET", headers: { Prefer: "return=representation" } }),
+    rest("trade_postmortems?select=position_id", { method: "GET", headers: { Prefer: "return=representation" } }),
+  ]);
+  const doneIds = new Set((done ?? []).map((r: any) => r.position_id));
+  return (closed ?? [])
+    .filter((r: any) => !doneIds.has(r.id))
+    .map((r: any) => ({
+      id: r.id, profileId: r.profile_id, symbol: r.symbol, qty: Number(r.qty), entryPrice: Number(r.entry_price), entryAt: r.entry_at,
+      invalidationPrice: r.invalidation_price != null ? Number(r.invalidation_price) : null,
+      realizedPnl: r.realized_pnl != null ? Number(r.realized_pnl) : null, signalId: r.signal_id, closedAt: r.closed_at,
+    }));
+}
+
+/** Watchtower/guard events for a symbol within a position's holding window (profile-scoped). */
+export async function guardEventsInWindow(profileId: string, symbol: string, fromIso: string, toIso: string): Promise<Array<{ kind: string; detected_at: string }>> {
+  return await rest(
+    `book_events?select=kind,detected_at&profile_id=eq.${profileId}&symbol=eq.${encodeURIComponent(symbol)}&detected_at=gte.${encodeURIComponent(fromIso)}&detected_at=lte.${encodeURIComponent(toIso)}`,
+    { method: "GET", headers: { Prefer: "return=representation" } },
+  ) ?? [];
+}
+
+export async function insertPostmortem(p: {
+  position_id: number; profile_id: string; symbol: string; thesis_verdict: string;
+  exit_followed_plan: boolean | null; guards_fired: string[]; summary: string;
+}): Promise<void> {
+  await rest("trade_postmortems", { method: "POST", body: JSON.stringify([p]) });
+}
+
 // ===== News Sentry (A2) =====
 
 /** Every NSE holding across every profile, with who to notify — News Sentry's watch list. */

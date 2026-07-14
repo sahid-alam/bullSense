@@ -6,6 +6,7 @@
 import { fetchDailyBars } from "../providers/prices.js";
 import { pageOperators } from "../lib/alert.js";
 import { markCards } from "../lib/advisor.js";
+import { runPostmortems } from "../lib/postmortem.js";
 import { computeRadar, sma, applyHysteresis, bandRegime, type Regime } from "../lib/radar.js";
 import { storeAvailable, upsertRegimeScore, getRecentRegimes, logJobRun, routineEnabled, touchRoutine } from "../providers/store.js";
 import { runWatchtower } from "../lib/watchtower.js";
@@ -162,7 +163,10 @@ async function main() {
   // Score matured advisor cards — calibration for the A1 heuristic verdict
   const cards = await markCards();
 
-  await logJobRun("nightly", asOf, "ok", started, { ...out, si, squeeze, scorer: score, paperfund: fund, personal, watchtower: watch });
+  // Post-mortems — every newly-closed position auto-examined (A2)
+  const postmortems = await runPostmortems();
+
+  await logJobRun("nightly", asOf, "ok", started, { ...out, si, squeeze, scorer: score, paperfund: fund, personal, watchtower: watch, postmortems });
   await touchRoutine("nightly",
     `Radar ${radar.score} → ${effectiveRegime} · SI ${si.fresh ? `+${si.archived}` : "cached"} · Squeeze ${squeeze.fired} fired · fund ₹${fund.equity} (dd ${fund.drawdownPct}%, ${fund.openPositions} open) · Watch ${watch.events.length}`);
   console.log("Radar persisted:", JSON.stringify(out));

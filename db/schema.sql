@@ -206,6 +206,21 @@ create table if not exists india_regime_scores (
   prev_score    numeric
 );
 
+-- Trade post-mortems (A2) — every closed position auto-examined: thesis right/lucky/wrong,
+-- did the exit follow the plan, which guards fired. Deterministic (not LLM-decided).
+create table if not exists trade_postmortems (
+  id                  bigserial primary key,
+  position_id         bigint not null references positions(id),
+  profile_id          text not null,
+  symbol              text not null,
+  thesis_verdict      text not null,   -- 'right' | 'lucky' | 'wrong' | 'unclear'
+  exit_followed_plan  boolean,
+  guards_fired        text[] not null default '{}',
+  summary             text not null,
+  created_at          timestamptz not null default now(),
+  unique (position_id)
+);
+
 -- News Sentry (A2) — dedup gate: the sort_date of the newest NSE corporate announcement
 -- already triaged per symbol (NOT seq_id — its numbering isn't monotonic across NSE's own
 -- ID-system eras), so re-runs only process genuinely new announcements.

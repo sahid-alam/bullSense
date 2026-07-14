@@ -47,6 +47,7 @@ const HELP = [
   "/book — your positions vs their stops",
   "/took `SYMBOL QTY [ENTRY]` — record that you traded a signal (tracks your P&L)",
   "/pnl — your realized P&L, win rate, and open positions",
+  "/postmortems — every closed trade auto-examined (thesis right/lucky/wrong)",
   "/dossier `SYMBOL` — deep-dive research (fundamentals, bull/bear, verdict)",
   "/card `SYMBOL` — advisor card: market · potential · enter/avoid · size · stop · target",
   "/screener — top NSE stocks by momentum + delivery (heuristic ranking)",
@@ -604,6 +605,19 @@ async function handle(text: string, chatId: number): Promise<string> {
     lines.push(`Realized: *${Number(c.realized) >= 0 ? "+" : ""}${Math.round(Number(c.realized))}* over ${c.n} closed`);
     lines.push(`Win rate: ${wr} · ${open[0].n} open`);
     if (Number(c.n) === 0 && Number(open[0].n) === 0) lines.push("", "_No tracked trades yet. When you act on a signal, log it with /took._");
+    return lines.join("\n");
+  }
+
+  if (cmd === "/postmortems") {
+    const profile = await primaryProfileFor(chatId);
+    if (!profile) return "No profile found for you.";
+    const rows = await sql`select symbol, thesis_verdict, summary, created_at from trade_postmortems where profile_id = ${profile.id} order by created_at desc limit 8`;
+    if (rows.length === 0) return "*Trade Post-mortems*\n\n_None yet — every position you close gets auto-examined nightly (thesis right/lucky/wrong, did the exit follow the plan, which guards fired)._";
+    const lines = ["*Trade Post-mortems*", ""];
+    for (const r of rows) {
+      const icon = r.thesis_verdict === "right" ? "✅" : r.thesis_verdict === "wrong" ? "❌" : r.thesis_verdict === "lucky" ? "🍀" : "❓";
+      lines.push(`${icon} ${r.summary}`);
+    }
     return lines.join("\n");
   }
 

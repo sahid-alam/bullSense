@@ -53,6 +53,7 @@ const HELP = [
   "/fund — engine paper fund: return, Sharpe, drawdown vs SPY",
   "/myfund — your book: return, Sharpe, drawdown vs NIFTY",
   "/friction `ENTRY EXIT QTY [DAYS]` — net P&L after India costs + tax",
+  "/news — NSE corporate announcements on your holdings, LLM-triaged",
   "/lab — latest genome re-tuning result",
   "/beliefs — what BullSense currently believes (and recent mind-changes)",
   "/ask `question` — interrogate the analyst about its own data",
@@ -462,6 +463,22 @@ async function handle(text: string, chatId: number): Promise<string> {
       ``,
       `_Real INR money benchmarks against NIFTY, not SPY — gross returns only; run /friction on a closed trade for the real net-of-cost number._`,
     ].filter(Boolean).join("\n");
+  }
+
+  if (cmd === "/news") {
+    const rows = await sql`
+      select b.symbol, b.triage, b.summary, b.detected_at
+      from book_events b join profiles p on p.id = b.profile_id
+      where p.telegram_chat_id = ${String(chatId)} and b.kind = 'news'
+      order by b.detected_at desc limit 8`;
+    if (rows.length === 0) return "*News Sentry*\n\n_No triaged announcements yet on your held NSE names — it checks nightly against NSE corporate announcements._";
+    const lines = ["*News Sentry* — NSE announcements on your holdings", ""];
+    for (const r of rows) {
+      const icon = r.triage === "decide" ? "🚨" : r.triage === "look" ? "👀" : "ℹ️";
+      lines.push(`${icon} *${r.symbol}* (${new Date(r.detected_at).toISOString().slice(0, 10)}) — ${r.summary}`);
+    }
+    lines.push("", "_LLM-triaged from real NSE filings — classification only, never a buy/sell decision._");
+    return lines.join("\n");
   }
 
   if (cmd === "/lab") {

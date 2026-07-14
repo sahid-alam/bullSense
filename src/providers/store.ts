@@ -556,3 +556,26 @@ export async function fiiDiiDailyNet(limit = 60): Promise<Array<{ date: string; 
   for (const r of rows ?? []) byDate.set(r.trade_date, (byDate.get(r.trade_date) ?? 0) + Number(r.net_value));
   return [...byDate.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([date, net]) => ({ date, net }));
 }
+
+// ===== News Sentry (A2) =====
+
+/** Every NSE holding across every profile, with who to notify — News Sentry's watch list. */
+export async function nseHoldings(): Promise<Array<{ profileId: string; symbol: string; telegramChatId: string | null }>> {
+  const rows = await rest(`book?select=profile_id,symbol,profiles(telegram_chat_id)&kind=eq.holding&exchange=eq.NSE&qty=gt.0`, {
+    method: "GET", headers: { Prefer: "return=representation" },
+  });
+  return (rows ?? []).map((r: any) => ({ profileId: r.profile_id, symbol: r.symbol, telegramChatId: r.profiles?.telegram_chat_id ?? null }));
+}
+
+export async function newsSentryLastSeenDate(symbol: string): Promise<string | null> {
+  const rows = await rest(`news_sentry_state?select=last_seen_date&symbol=eq.${encodeURIComponent(symbol)}`, {
+    method: "GET", headers: { Prefer: "return=representation" },
+  });
+  return rows?.[0]?.last_seen_date ?? null;
+}
+
+export async function updateNewsSentryState(symbol: string, lastSeenDate: string): Promise<void> {
+  await rest("news_sentry_state?on_conflict=symbol", {
+    method: "POST", body: JSON.stringify([{ symbol, last_seen_date: lastSeenDate, checked_at: new Date().toISOString() }]), preferUpsert: true,
+  });
+}

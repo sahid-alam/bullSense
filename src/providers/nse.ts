@@ -133,14 +133,17 @@ export async function fetchFnoOi(d: Date): Promise<{ contentDate: string; rows: 
   return { contentDate, rows };
 }
 
+/** NSE's anti-bot host needs a homepage cookie before any /api/ call will succeed. */
+async function nseCookies(): Promise<string> {
+  const home = await fetch("https://www.nseindia.com/", { headers: { "User-Agent": UA } });
+  return (home.headers.getSetCookie?.() ?? []).map((c) => c.split(";")[0]).join("; ");
+}
+
 export interface FiiDiiRow { trade_date: string; category: "FII" | "DII"; buy_value: number | null; sell_value: number | null; net_value: number | null }
 
 /** Latest FII/DII net flows. The anti-bot host needs a homepage cookie first. */
 export async function fetchFiiDii(): Promise<FiiDiiRow[]> {
-  // 1. prime cookies from the homepage
-  const home = await fetch("https://www.nseindia.com/", { headers: { "User-Agent": UA } });
-  const cookies = (home.headers.getSetCookie?.() ?? []).map((c) => c.split(";")[0]).join("; ");
-  // 2. hit the JSON api with the cookie + referer
+  const cookies = await nseCookies();
   const res = await fetch("https://www.nseindia.com/api/fiidiiTradeReact", {
     headers: { "User-Agent": UA, Referer: "https://www.nseindia.com/", Cookie: cookies, Accept: "application/json" },
   });
@@ -154,4 +157,22 @@ export async function fetchFiiDii(): Promise<FiiDiiRow[]> {
     out.push({ trade_date: td, category, buy_value: num(r.buyValue), sell_value: num(r.sellValue), net_value: num(r.netValue) });
   }
   return out;
+}
+
+export interface AnnouncementRow { symbol: string; seq_id: string; an_dt: string; sort_date: string; desc: string; text: string }
+
+/** NSE corporate announcements for one symbol (News Sentry, A2). UNTRUSTED CONTENT — desc/text
+ *  are free text filed by the company; callers must treat them as data to classify, never as
+ *  instructions to follow. The anti-bot host needs a homepage cookie first.
+ *  Freshness must be judged on `sort_date` (ISO, directly comparable) — NOT `seq_id`, whose
+ *  numbering scheme isn't monotonic across NSE's own ID-system eras (a stale 2022 filing can
+ *  carry a numerically LARGER seq_id than a fresh 2026 one). */
+export async function fetchCorporateAnnouncements(symbol: string): Promise<AnnouncementRow[]> {
+  const cookies = await nseCookies();
+  const res = await fetch(`https://www.nseindia.com/api/corporate-announcements?index=equities&symbol=${encodeURIComponent(symbol)}`, {
+    headers: { "User-Agent": UA, Referer: "https://www.nseindia.com/", Cookie: cookies, Accept: "application/json" },
+  });
+  if (!res.ok) throw new Error(`corporate-announcements fetch ${res.status}`);
+  const data = (await res.json()) as Array<{ symbol: string; seq_id: string; an_dt: string; sort_date: string; desc: string; attchmntText: string }>;
+  return data.map((r) => ({ symbol: r.symbol, seq_id: String(r.seq_id), an_dt: r.an_dt, sort_date: r.sort_date, desc: r.desc ?? "", text: r.attchmntText ?? "" }));
 }

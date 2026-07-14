@@ -206,6 +206,15 @@ create table if not exists india_regime_scores (
   prev_score    numeric
 );
 
+-- News Sentry (A2) — dedup gate: the sort_date of the newest NSE corporate announcement
+-- already triaged per symbol (NOT seq_id — its numbering isn't monotonic across NSE's own
+-- ID-system eras), so re-runs only process genuinely new announcements.
+create table if not exists news_sentry_state (
+  symbol          text primary key,
+  last_seen_date  timestamptz,
+  checked_at      timestamptz not null default now()
+);
+
 create table if not exists book_events (
   id            bigserial primary key,
   profile_id    text not null references profiles(id),

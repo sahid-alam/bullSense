@@ -1,0 +1,22 @@
+name: india-archive
+# India Archivist (A0.2) — capture NSE point-in-time data daily after publication.
+# NSE publishes end-of-day files ~8pm IST (14:30 UTC); 15:30 UTC leaves a safe margin.
+on:
+  schedule:
+    - cron: "30 15 * * 1-5"   # Mon–Fri, 15:30 UTC (≈9pm IST), after NSE EOD publication
+  workflow_dispatch:
+
+jobs:
+  archive:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      - name: Capture NSE data
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: npx tsx src/jobs/india-archive.ts

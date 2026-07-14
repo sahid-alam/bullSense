@@ -14,7 +14,9 @@
     "setup:telegram": "tsx src/jobs/telegram-setup.ts",
     "briefing:manual": "tsx src/jobs/first-briefing.ts",
     "job:dossier": "tsx src/jobs/dossier.ts",
-    "job:lab": "tsx src/jobs/lab.ts"
+    "job:lab": "tsx src/jobs/lab.ts",
+    "job:india-archive": "tsx src/jobs/india-archive.ts",
+    "india:backfill": "tsx src/jobs/india-archive.ts --backfill"
   },
   "dependencies": {
     "pg": "^8.13.0",

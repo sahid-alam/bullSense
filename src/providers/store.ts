@@ -433,3 +433,32 @@ export async function recordBelief(b: { category: string; subject: string; stanc
   await rest("beliefs", { method: "POST", body: JSON.stringify([{ ...b, prev_id: cur?.id ?? null }]) });
   return cur ? "changed" : "new";
 }
+
+// ===== India Archivist (A0.2) =====
+
+export async function upsertNseEquity(rows: any[]): Promise<void> {
+  for (let i = 0; i < rows.length; i += 500) {
+    await rest("nse_equity?on_conflict=symbol,series,trade_date", { method: "POST", body: JSON.stringify(rows.slice(i, i + 500)), preferUpsert: true });
+  }
+}
+
+export async function upsertFiiDii(rows: any[]): Promise<void> {
+  if (rows.length === 0) return;
+  await rest("fii_dii_flows?on_conflict=trade_date,category", { method: "POST", body: JSON.stringify(rows), preferUpsert: true });
+}
+
+/** Most recent equity trade_date already archived (for skip-if-present + freshness). */
+export async function latestNseEquityDate(): Promise<string | null> {
+  const rows = await rest("nse_equity?select=trade_date&order=trade_date.desc&limit=1", { method: "GET", headers: { Prefer: "return=representation" } });
+  return rows?.[0]?.trade_date ?? null;
+}
+
+export async function insertIndiaArchiveRun(r: { trade_date: string | null; equity_rows: number; fii_dii_rows: number; status: string; detail: string }): Promise<void> {
+  await rest("india_archive_runs", { method: "POST", body: JSON.stringify([r]) });
+}
+
+/** Telegram chat ids for every operator — used to page on a failed/stale capture. */
+export async function operatorChatIds(): Promise<string[]> {
+  const rows = await rest("profiles?select=telegram_chat_id&telegram_chat_id=not.is.null", { method: "GET", headers: { Prefer: "return=representation" } });
+  return [...new Set((rows ?? []).map((r: any) => r.telegram_chat_id).filter(Boolean))] as string[];
+}

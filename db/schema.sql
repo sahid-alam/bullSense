@@ -134,6 +134,34 @@ create table if not exists book (
   primary key (profile_id, symbol, kind)
 );
 
+-- ===== India Archivist (A0.2) — point-in-time NSE data, keyed on the date inside each file =====
+create table if not exists nse_equity (
+  symbol        text not null,
+  series        text not null,                 -- EQ, BE, SM, GS(bond)… keep so equities are separable
+  trade_date    date not null,
+  prev_close    numeric, open numeric, high numeric, low numeric, last_price numeric,
+  close         numeric, avg_price numeric,
+  volume        bigint,                          -- TTL_TRD_QNTY
+  turnover_lacs numeric, num_trades bigint,
+  deliv_qty     bigint,                          -- '-' for non-deliverable series → null
+  deliv_per     numeric,                         -- crown jewel: delivery % (accumulation signal)
+  primary key (symbol, series, trade_date)
+);
+create index if not exists nse_equity_date_idx on nse_equity (trade_date);
+create index if not exists nse_equity_sym_idx on nse_equity (symbol, trade_date);
+
+create table if not exists fii_dii_flows (
+  trade_date    date not null,
+  category      text not null,                   -- 'FII' | 'DII'
+  buy_value numeric, sell_value numeric, net_value numeric,
+  primary key (trade_date, category)
+);
+
+create table if not exists india_archive_runs (
+  id bigserial primary key, ran_at timestamptz not null default now(),
+  trade_date date, equity_rows int, fii_dii_rows int, status text, detail text
+);
+
 create table if not exists book_events (
   id            bigserial primary key,
   profile_id    text not null references profiles(id),

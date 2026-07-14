@@ -31,6 +31,21 @@ export interface BacktestResult {
   maxDrawdownPct: number;   // on the equal-weight trade equity curve
 }
 
+/** One completed trade — only collected when a sink is passed (the bench uses this to
+ *  show the engine's actual entries/exits; the Lab ignores it). Purely additive. */
+export interface TradeDetail {
+  symbol: string;
+  entryDate: string;
+  entry: number;
+  invalidation: number;
+  exitDate: string;
+  exit: number;
+  netReturnPct: number;     // after friction
+  spyReturnPct: number;     // SPY over the same window
+  heldDays: number;
+  exitReason: "stop" | "time_stop" | "horizon" | "data_end";
+}
+
 const FRICTION_RT = 0.002;  // 20bps round-trip (commission + slippage)
 const HORIZON_CAP = 60;
 const SI_DISSEMINATION_LAG_BDAYS = 9;  // FINRA publishes short interest ~9 business days after settlement
@@ -41,6 +56,7 @@ export function backtestSqueeze(
   si: SIRow[],
   prices: Map<string, Bar[]>,
   spy: Bar[],
+  sink?: TradeDetail[],   // optional: collect per-trade detail (bench). Does not affect stats.
 ): BacktestResult {
   const spyClose = (d: string) => spy.find((b) => b.date >= d)?.close ?? null;
   const rets: number[] = [];
@@ -65,7 +81,7 @@ export function backtestSqueeze(
       if (b.date < windowStart || b.date > windowEnd) continue;
       const ma20 = avg(bars, i, 20);
       const prevMa20 = avg(bars, i - 1, 20);
-      const vol20 = avgVol(bars, i, 20);
+      const vol20 = avgVol(bars, i - 1, 20); // prior 20 bars, excl. the current one
       const relVol = vol20 > 0 ? b.volume / vol20 : 0;
       const crossed = b.close > ma20 && bars[i - 1].close <= prevMa20;
       if (!(crossed && relVol >= params.minRelVolume)) continue;
@@ -93,16 +109,24 @@ export function backtestSqueeze(
     const invalidation = Math.max(low20, entry * (1 - params.invalidationPct));
 
     let exit = entry, exitDate = entryDate;
-    const maxI = Math.min(trigIdx + 1 + params.timeStopDays, trigIdx + 1 + HORIZON_CAP, bars.length - 1);
+    let exitReason: TradeDetail["exitReason"] = "data_end";
+    const timeStopI = trigIdx + 1 + params.timeStopDays;
+    const maxI = Math.min(timeStopI, trigIdx + 1 + HORIZON_CAP, bars.length - 1);
     for (let i = trigIdx + 1; i <= maxI; i++) {
       const b = bars[i];
-      if (i > trigIdx + 1 && b.low <= invalidation) { exit = invalidation; exitDate = b.date; break; }
-      if (i === maxI) { exit = b.close; exitDate = b.date; }
+      if (i > trigIdx + 1 && b.low <= invalidation) { exit = invalidation; exitDate = b.date; exitReason = "stop"; break; }
+      if (i === maxI) { exit = b.close; exitDate = b.date; exitReason = maxI === timeStopI ? "time_stop" : maxI === trigIdx + 1 + HORIZON_CAP ? "horizon" : "data_end"; }
     }
     const net = exit / entry - 1 - FRICTION_RT;
     rets.push(net); entryDates.push(entryDate);
     const se = spyClose(entryDate), sx = spyClose(exitDate);
-    spyRets.push(se && sx ? sx / se - 1 : 0);
+    const spyRet = se && sx ? sx / se - 1 : 0;
+    spyRets.push(spyRet);
+    if (sink) sink.push({
+      symbol: cand.symbol, entryDate, entry, invalidation, exitDate, exit,
+      netReturnPct: net * 100, spyReturnPct: spyRet * 100,
+      heldDays: Math.round(daysBetween(entryDate, exitDate)), exitReason,
+    });
   }
 
   if (rets.length === 0) return { trades: 0, winRate: 0, profitFactor: 0, avgNetReturn: 0, avgSpyReturn: 0, excessVsSpy: 0, maxDrawdownPct: 0 };

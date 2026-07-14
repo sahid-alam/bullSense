@@ -1,4 +1,4 @@
-import { backtestSqueeze, type Bar, type SIRow, type SqueezeParams } from "./backtest.js";
+import { backtestSqueeze, type Bar, type SIRow, type SqueezeParams, type TradeDetail } from "./backtest.js";
 
 let failures = 0;
 const check = (name: string, cond: boolean, detail = "") => {
@@ -43,6 +43,13 @@ check("C1: trigger after SI dissemination still trades", postDissem.trades === 1
 // M15: profit factor must never be the old 99 sentinel — a lossless sample is floored,
 // not treated as an infinite edge.
 check("M15: no 99 profit-factor sentinel", postDissem.profitFactor < 90, `pf=${postDissem.profitFactor}`);
+
+// BENCH: the optional trade sink collects one detailed row per trade, and it does not
+// change the aggregate stats (additive-only). The bench relies on this.
+const sink: TradeDetail[] = [];
+const withSink = backtestSqueeze(params, si, new Map([["TEST", genBars("2023-12-01", "2024-03-15", "2024-01-30")]]), spy, sink);
+check("BENCH: sink collects one row per trade", sink.length === withSink.trades && sink.length === 1, `sink=${sink.length} trades=${withSink.trades}`);
+check("BENCH: sink row carries entry/exit/reason", !!sink[0] && sink[0].symbol === "TEST" && typeof sink[0].netReturnPct === "number" && !!sink[0].exitReason, sink[0] ? `${sink[0].entryDate}→${sink[0].exitDate} ${sink[0].exitReason}` : "no row");
 
 console.log(failures === 0 ? "\nALL BACKTEST TESTS PASSED" : `\n${failures} FAILURES`);
 process.exit(failures === 0 ? 0 : 1);

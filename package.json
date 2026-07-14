@@ -10,6 +10,7 @@
     "job:weekly": "tsx src/jobs/weekly.ts",
     "test:treasury": "tsx src/lib/treasury.test.ts",
     "test:backtest": "tsx src/lib/backtest.test.ts",
+    "bench": "tsx src/jobs/bench.ts",
     "setup:telegram": "tsx src/jobs/telegram-setup.ts",
     "briefing:manual": "tsx src/jobs/first-briefing.ts",
     "job:dossier": "tsx src/jobs/dossier.ts",

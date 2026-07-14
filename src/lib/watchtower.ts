@@ -5,8 +5,9 @@
  * Spam-guarded: the same event kind for the same symbol repeats at most weekly.
  */
 import { latestClose } from "../providers/prices.js";
-import { getProfiles, getBook, insertBookEvent, recentEventCount } from "../providers/store.js";
+import { getProfiles, getBook, insertBookEvent, recentEventCount, nseFnoLatest } from "../providers/store.js";
 import { sendTelegram } from "../providers/telegram.js";
+import { fnoExpiryEvent, upcomingMacroEvents } from "./calendar.js";
 
 export interface WatchtowerReport {
   checked: number;
@@ -17,9 +18,22 @@ export async function runWatchtower(): Promise<WatchtowerReport> {
   const report: WatchtowerReport = { checked: 0, events: [] };
   const profiles = await getProfiles();
 
+  const todayIso = new Date().toISOString().slice(0, 10);
+
   for (const profile of profiles) {
     const book = await getBook(profile.id);
     const holdings = book.filter((b) => b.kind === "holding" && b.qty > 0);
+
+    // Calendar (A2) — macro dates (RBI MPC, Union Budget), once per profile, only if it
+    // holds any NSE name (these are India-market events, not relevant to a US-only book).
+    if (holdings.some((h) => h.symbol.endsWith(".NS"))) {
+      for (const ev of upcomingMacroEvents(todayIso)) {
+        if ((await recentEventCount(profile.id, "MARKET", ev.kind, 7)) > 0) continue;
+        await insertBookEvent({ profile_id: profile.id, symbol: "MARKET", kind: ev.kind, triage: "fyi", summary: ev.summary });
+        report.events.push({ profile: profile.id, symbol: "MARKET", kind: ev.kind, triage: "fyi", summary: ev.summary });
+        if (profile.telegram_chat_id) await sendTelegram(profile.telegram_chat_id, `📅 *Calendar*\n${ev.summary}`);
+      }
+    }
 
     for (const pos of holdings) {
       report.checked++;
@@ -81,6 +95,15 @@ export async function runWatchtower(): Promise<WatchtowerReport> {
         await emit("time_stop", "decide",
           `TIME STOP: ${pos.symbol} passed its ${pos.time_stop_date} deadline at ${price.toFixed(2)} ` +
           `(${movePct >= 0 ? "+" : ""}${movePct.toFixed(1)}%). The thesis had a clock; the clock ran out. Exit or explicitly renew the thesis.`, 3);
+      }
+
+      // Calendar (A2) — F&O expiry, from the Archivist's own captured data (not a hardcoded rule).
+      if (pos.symbol.endsWith(".NS")) {
+        try {
+          const fno = await nseFnoLatest(pos.symbol.replace(/\.NS$/, ""));
+          const ev = fno ? fnoExpiryEvent(fno.near_expiry, todayIso) : null;
+          if (ev) await emit(ev.kind, "fyi", `${pos.symbol}: ${ev.summary}`, 3);
+        } catch { /* F&O data is best-effort */ }
       }
     }
   }

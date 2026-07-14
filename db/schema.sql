@@ -162,6 +162,8 @@ create table if not exists nse_fno_oi (            -- F&O open interest aggregat
   futures_oi bigint, call_oi bigint, put_oi bigint, total_oi bigint,
   pcr numeric,                                     -- put/call OI ratio (sentiment gauge)
   futures_oi_chg bigint,
+  near_expiry date,                                -- nearest live contract's ACTUAL expiry (NSE's
+                                                     -- FininstrmActlXpryDt) — Calendar (A2), real data
   primary key (underlying, trade_date)
 );
 create index if not exists nse_fno_oi_date_idx on nse_fno_oi (trade_date);

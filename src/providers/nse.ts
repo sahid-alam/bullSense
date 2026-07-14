@@ -79,6 +79,7 @@ export interface FnoOiRow {
   underlying: string; trade_date: string;
   futures_oi: number; call_oi: number; put_oi: number; total_oi: number;
   pcr: number | null; futures_oi_chg: number;
+  near_expiry: string | null; // nearest live contract's ACTUAL expiry (FininstrmActlXpryDt) — real data, not a "last Thursday" rule
 }
 
 /** F&O open interest for one UTC date, aggregated per underlying (futures / call / put OI + PCR). */
@@ -97,8 +98,10 @@ export async function fetchFnoOi(d: Date): Promise<{ contentDate: string; rows: 
   const h = lines[0].split(",").map((x) => x.trim());
   const iSym = h.indexOf("TckrSymb"), iTp = h.indexOf("FinInstrmTp"), iOpt = h.indexOf("OptnTp");
   const iOi = h.indexOf("OpnIntrst"), iChg = h.indexOf("ChngInOpnIntrst"), iDate = h.indexOf("TradDt");
+  const iExpiry = h.indexOf("FininstrmActlXpryDt"); // the ACTUAL (holiday-adjusted) expiry, straight from NSE
 
   const agg = new Map<string, FnoOiRow>();
+  const nearExpiry = new Map<string, string>();
   let contentDate: string | null = null;
   for (let i = 1; i < lines.length; i++) {
     const c = lines[i].split(",");
@@ -110,14 +113,23 @@ export async function fetchFnoOi(d: Date): Promise<{ contentDate: string; rows: 
     const oi = num(c[iOi]) ?? 0, chg = num(c[iChg]) ?? 0;
     const tp = c[iTp].trim(), opt = c[iOpt].trim();
     let r = agg.get(sym);
-    if (!r) { r = { underlying: sym, trade_date: td, futures_oi: 0, call_oi: 0, put_oi: 0, total_oi: 0, pcr: null, futures_oi_chg: 0 }; agg.set(sym, r); }
+    if (!r) { r = { underlying: sym, trade_date: td, futures_oi: 0, call_oi: 0, put_oi: 0, total_oi: 0, pcr: null, futures_oi_chg: 0, near_expiry: null }; agg.set(sym, r); }
     r.total_oi += oi;
     if (tp === "IDF" || tp === "STF") { r.futures_oi += oi; r.futures_oi_chg += chg; }
     else if (opt === "CE") r.call_oi += oi;
     else if (opt === "PE") r.put_oi += oi;
+
+    const xpry = c[iExpiry]?.trim();
+    if (xpry && xpry >= td) { // only future/current-day expiries, ISO strings sort correctly
+      const cur = nearExpiry.get(sym);
+      if (!cur || xpry < cur) nearExpiry.set(sym, xpry);
+    }
   }
   if (!contentDate) return null;
-  const rows = [...agg.values()].map((r) => ({ ...r, pcr: r.call_oi > 0 ? Math.round((r.put_oi / r.call_oi) * 1000) / 1000 : null }));
+  const rows = [...agg.values()].map((r) => ({
+    ...r, pcr: r.call_oi > 0 ? Math.round((r.put_oi / r.call_oi) * 1000) / 1000 : null,
+    near_expiry: nearExpiry.get(r.underlying) ?? null,
+  }));
   return { contentDate, rows };
 }
 

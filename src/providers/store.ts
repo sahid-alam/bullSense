@@ -472,10 +472,10 @@ export async function nseDeliveryTrend(symbol: string): Promise<{ recent: number
   return { latest: v[0], recent: avg(v.slice(0, 5)), base: avg(v.slice(5, 25)), date: rows[0].trade_date };
 }
 
-/** Latest F&O positioning (PCR + futures OI change) for an underlying, if it trades in F&O. */
-export async function nseFnoLatest(underlying: string): Promise<{ pcr: number | null; futures_oi_chg: number | null; date: string } | null> {
-  const rows = await rest(`nse_fno_oi?select=pcr,futures_oi_chg,trade_date&underlying=eq.${encodeURIComponent(underlying)}&order=trade_date.desc&limit=1`, { method: "GET", headers: { Prefer: "return=representation" } });
-  return rows?.[0] ? { pcr: rows[0].pcr, futures_oi_chg: rows[0].futures_oi_chg, date: rows[0].trade_date } : null;
+/** Latest F&O positioning (PCR + futures OI change + nearest expiry) for an underlying, if it trades in F&O. */
+export async function nseFnoLatest(underlying: string): Promise<{ pcr: number | null; futures_oi_chg: number | null; date: string; near_expiry: string | null } | null> {
+  const rows = await rest(`nse_fno_oi?select=pcr,futures_oi_chg,trade_date,near_expiry&underlying=eq.${encodeURIComponent(underlying)}&order=trade_date.desc&limit=1`, { method: "GET", headers: { Prefer: "return=representation" } });
+  return rows?.[0] ? { pcr: rows[0].pcr, futures_oi_chg: rows[0].futures_oi_chg, date: rows[0].trade_date, near_expiry: rows[0].near_expiry ?? null } : null;
 }
 
 /** Freeze an advisor card verdict (immutable receipt) so calibration can accrue. */

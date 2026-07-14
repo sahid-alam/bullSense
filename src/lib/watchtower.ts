@@ -31,13 +31,14 @@ export async function runWatchtower(): Promise<WatchtowerReport> {
       }
       const movePct = (price / pos.cost_basis - 1) * 100;
 
-      const emit = async (kind: string, triage: "fyi" | "look" | "decide", summary: string, dedupeDays: number) => {
+      const emit = async (kind: string, triage: "fyi" | "look" | "decide", summary: string, dedupeDays: number, icon?: string) => {
         if ((await recentEventCount(profile.id, pos.symbol, kind, dedupeDays)) > 0) return;
         await insertBookEvent({ profile_id: profile.id, symbol: pos.symbol, kind, triage, summary });
         report.events.push({ profile: profile.id, symbol: pos.symbol, kind, triage, summary });
         if ((triage === "decide" || triage === "look") && profile.telegram_chat_id) {
-          const icon = triage === "decide" ? "🚨" : "👀";
-          await sendTelegram(profile.telegram_chat_id, `${icon} *Watchtower — ${pos.symbol}*\n${summary}`);
+          // a win must not fire the same alarm as a blown stop — callers can override the icon
+          const ic = icon ?? (triage === "decide" ? "🚨" : "👀");
+          await sendTelegram(profile.telegram_chat_id, `${ic} *Watchtower — ${pos.symbol}*\n${summary}`);
         }
       };
 
@@ -56,6 +57,24 @@ export async function runWatchtower(): Promise<WatchtowerReport> {
       } else if (price <= pos.invalidation_price * 1.03) {
         await emit("invalidation_near", "look",
           `${pos.symbol} at ${price.toFixed(2)} — within 3% of the ${pos.invalidation_price} stop. No action required; the plan is armed.`, 3);
+      }
+
+      // Upside vigilance — the symmetric half of the stop. A target hit is a decision to
+      // PROTECT the gain, never a reflexive "sell now": cutting winners early is itself a
+      // documented failure mode. So we prompt bank-vs-trail, we don't order an exit.
+      if (pos.target_price != null) {
+        if (price >= pos.target_price) {
+          await emit("target_hit", "decide",
+            `🎯 TARGET REACHED: ${pos.symbol} at ${price.toFixed(2)} hit your ${pos.target_price} target ` +
+            `(${movePct >= 0 ? "+" : ""}${movePct.toFixed(1)}% from cost). You've earned the planned reward. ` +
+            `Decide deliberately: bank it, or trail your stop up under the price and let the winner run — ` +
+            `just don't cut it on reflex.`, 3, "🎯");
+        } else if (price >= pos.target_price * 0.97) {
+          await emit("target_near", "look",
+            `${pos.symbol} at ${price.toFixed(2)} — within 3% of your ${pos.target_price} target ` +
+            `(${movePct >= 0 ? "+" : ""}${movePct.toFixed(1)}%). Decide the plan now (bank vs trail), ` +
+            `not in the heat of the tick.`, 3, "🎯");
+        }
       }
 
       if (pos.time_stop_date && new Date(pos.time_stop_date) <= new Date()) {

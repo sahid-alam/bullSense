@@ -57,6 +57,7 @@ const HELP = [
   "/add `SYM QTY COST [STOP]` — log a position you already own (Position Intake)",
   "/sold `SYMBOL QTY [PRICE]` — record a sale, realize P&L, reduce your book",
   "/stop `SYMBOL PRICE` — set an invalidation (e.g. `/stop CUPID.NS 195`)",
+  "/target `SYMBOL PRICE` — set a profit target (Watchtower prompts protect-the-gain when hit)",
   "/remove `SYMBOL` — drop a position without recording a sale (prefer /sold)",
   "/pause — halt new signals & alerts (archives keep running)",
   "/resume — resume the engine",
@@ -183,7 +184,7 @@ async function handle(text: string, chatId: number): Promise<string> {
 
   if (cmd === "/book") {
     const rows = await sql`
-      select b.symbol, b.qty, b.cost_basis, b.invalidation_price, b.time_stop_date
+      select b.symbol, b.qty, b.cost_basis, b.invalidation_price, b.target_price, b.time_stop_date
       from book b join profiles p on p.id = b.profile_id
       where p.telegram_chat_id = ${String(chatId)} and b.kind = 'holding' and b.qty > 0
       order by b.symbol`;
@@ -191,10 +192,11 @@ async function handle(text: string, chatId: number): Promise<string> {
     const lines = ["*Your Book*", ""];
     for (const b of rows) {
       const guard = b.invalidation_price ? `stop *${b.invalidation_price}*` : "⚠️ *no stop set*";
+      const tgt = b.target_price ? ` · 🎯 ${b.target_price}` : "";
       const ts = b.time_stop_date ? ` · time-stop ${b.time_stop_date}` : "";
-      lines.push(`*${b.symbol}* — ${b.qty} @ ${b.cost_basis} · ${guard}${ts}`);
+      lines.push(`*${b.symbol}* — ${b.qty} @ ${b.cost_basis} · ${guard}${tgt}${ts}`);
     }
-    lines.push("", "_Set a stop: /stop SYMBOL PRICE_");
+    lines.push("", "_Set a stop: /stop SYMBOL PRICE · a target: /target SYMBOL PRICE_");
     return lines.join("\n");
   }
 
@@ -535,6 +537,28 @@ async function handle(text: string, chatId: number): Promise<string> {
       ? `Risk to stop: ~${(riskPerShare * Number(u.qty)).toFixed(0)} (${((riskPerShare / Number(u.cost_basis)) * 100).toFixed(1)}% from cost).`
       : `Note: stop is above your cost — this locks in a gain rather than capping a loss.`;
     return `✅ Stop set on *${symbol}* at *${price}*. ${riskNote}\nThe Watchtower now guards it nightly.`;
+  }
+
+  if (cmd === "/target") {
+    if (args.length < 2) return "Usage: `/target SYMBOL PRICE` — set a profit target, e.g. `/target CUPID.NS 245`";
+    const symbol = args[0].toUpperCase();
+    const price = Number(args[1]);
+    if (!isFinite(price) || price <= 0) return "Price must be a positive number.";
+    const rows = await sql`
+      select b.cost_basis, b.qty from book b join profiles p on p.id = b.profile_id
+      where p.telegram_chat_id = ${String(chatId)} and b.symbol = ${symbol} and b.kind = 'holding' limit 1`;
+    if (rows.length === 0) return `No holding *${symbol}* found in your book. Check the symbol (NSE names end in .NS).`;
+    const cost = Number(rows[0].cost_basis);
+    if (price <= cost) return `Target ${price} is at/below your cost ${cost} — that's not a profit target. Set it above cost.`;
+    await sql`update book b set target_price = ${price}
+      from profiles p
+      where b.profile_id = p.id and p.telegram_chat_id = ${String(chatId)}
+        and b.symbol = ${symbol} and b.kind = 'holding'`;
+    const cur = symbol.endsWith(".NS") ? "₹" : "$";
+    const gainPct = ((price / cost - 1) * 100).toFixed(1);
+    const gainAmt = ((price - cost) * Number(rows[0].qty)).toFixed(0);
+    return `🎯 Target set on *${symbol}* at *${price}* (+${gainPct}% from cost · ~${cur}${gainAmt} on your ${rows[0].qty}).\n` +
+      `When it's hit, the Watchtower prompts you to *protect the gain* — bank it or trail your stop, your call. It won't tell you to cut a winner on reflex.`;
   }
 
   if (cmd === "/pause" || cmd === "/resume") {

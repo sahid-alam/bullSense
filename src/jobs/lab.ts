@@ -62,7 +62,11 @@ async function main() {
   const def = squeeze.definition;
   const dtc = def.entry.find((e: any) => e.feature === "days_to_cover")?.value ?? 5;
   const rv = def.entry.find((e: any) => e.feature === "rel_volume")?.value ?? 1.5;
-  const incumbent: SqueezeParams = { minDaysToCover: dtc, minRelVolume: rv, invalidationPct: 0.10, timeStopDays: 30 };
+  // derive the incumbent's exit from the LIVE genome, not a hardcoded straw-man, so
+  // the promotion comparison is against what is actually running.
+  const timeStopDays = Number(def.exit?.time_stop_days) || 30;
+  const invalidationPct = String(def.exit?.invalidation ?? "").includes("trigger_day_low") ? 0.08 : 0.10;
+  const incumbent: SqueezeParams = { minDaysToCover: dtc, minRelVolume: rv, invalidationPct, timeStopDays };
   const incTr = backtestSqueeze(incumbent, siTrain, prices, spy), incTe = backtestSqueeze(incumbent, siTest, prices, spy);
 
   // --- candidates: parameter grid + LLM-INVENTED genomes (Lab v1) ---

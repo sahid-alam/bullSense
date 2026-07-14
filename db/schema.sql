@@ -129,6 +129,7 @@ create table if not exists book (
   -- Position-Intake plan (rescue mode): the retroactive trade plan for positions bought outside the system
   thesis        text,
   invalidation_price numeric,
+  target_price  numeric,                        -- optional profit target; Watchtower prompts a protect-the-gain decision when hit
   time_stop_date date,
   primary key (profile_id, symbol, kind)
 );

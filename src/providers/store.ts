@@ -71,8 +71,8 @@ export async function getProfiles(): Promise<Array<{ id: string; name: string; t
   }) ?? [];
 }
 
-export async function getBook(profileId: string): Promise<Array<{ symbol: string; exchange: string; kind: string; qty: number; cost_basis: number; invalidation_price: number | null; time_stop_date: string | null }>> {
-  return await rest(`book?select=symbol,exchange,kind,qty,cost_basis,invalidation_price,time_stop_date&profile_id=eq.${profileId}`, {
+export async function getBook(profileId: string): Promise<Array<{ symbol: string; exchange: string; kind: string; qty: number; cost_basis: number; invalidation_price: number | null; target_price: number | null; time_stop_date: string | null }>> {
+  return await rest(`book?select=symbol,exchange,kind,qty,cost_basis,invalidation_price,target_price,time_stop_date&profile_id=eq.${profileId}`, {
     method: "GET", headers: { Prefer: "return=representation" },
   }) ?? [];
 }

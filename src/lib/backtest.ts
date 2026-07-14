@@ -33,6 +33,7 @@ export interface BacktestResult {
 
 const FRICTION_RT = 0.002;  // 20bps round-trip (commission + slippage)
 const HORIZON_CAP = 60;
+const SI_DISSEMINATION_LAG_BDAYS = 9;  // FINRA publishes short interest ~9 business days after settlement
 
 /** Run one genome variant. prices: symbol → bars (sorted). si: settlement candidates. */
 export function backtestSqueeze(
@@ -43,6 +44,7 @@ export function backtestSqueeze(
 ): BacktestResult {
   const spyClose = (d: string) => spy.find((b) => b.date >= d)?.close ?? null;
   const rets: number[] = [];
+  const entryDates: string[] = [];
   const spyRets: number[] = [];
   const lastSignal = new Map<string, string>();
 
@@ -52,12 +54,15 @@ export function backtestSqueeze(
     const bars = prices.get(cand.symbol);
     if (!bars || bars.length < 21) continue;
 
-    // find a trigger within 21 days after settlement: close crosses above MA20 on rel-vol
-    const windowEnd = new Date(new Date(cand.settlementDate).getTime() + 21 * 86400_000).toISOString().slice(0, 10);
+    // FINRA short interest isn't public until ~9 business days after the settlement
+    // date, so the trigger window must START at dissemination — entering earlier is
+    // look-ahead (trading on data that didn't exist yet). Search 21 days from there.
+    const windowStart = addBusinessDays(cand.settlementDate, SI_DISSEMINATION_LAG_BDAYS);
+    const windowEnd = new Date(new Date(windowStart + "T00:00:00Z").getTime() + 21 * 86400_000).toISOString().slice(0, 10);
     let trigIdx = -1;
     for (let i = 20; i < bars.length; i++) {
       const b = bars[i];
-      if (b.date <= cand.settlementDate || b.date > windowEnd) continue;
+      if (b.date < windowStart || b.date > windowEnd) continue;
       const ma20 = avg(bars, i, 20);
       const prevMa20 = avg(bars, i - 1, 20);
       const vol20 = avgVol(bars, i, 20);
@@ -95,7 +100,7 @@ export function backtestSqueeze(
       if (i === maxI) { exit = b.close; exitDate = b.date; }
     }
     const net = exit / entry - 1 - FRICTION_RT;
-    rets.push(net);
+    rets.push(net); entryDates.push(entryDate);
     const se = spyClose(entryDate), sx = spyClose(exitDate);
     spyRets.push(se && sx ? sx / se - 1 : 0);
   }
@@ -105,13 +110,18 @@ export function backtestSqueeze(
   const losses = rets.filter((r) => r <= 0);
   const grossWin = wins.reduce((a, b) => a + b, 0);
   const grossLoss = Math.abs(losses.reduce((a, b) => a + b, 0));
-  // equal-weight equity curve for drawdown
+  // equal-weight equity curve for drawdown — trades ordered by ENTRY DATE, not the
+  // arbitrary candidate-iteration order, or the max-drawdown number is meaningless.
+  const chrono = rets.map((r, i) => ({ d: entryDates[i], r })).sort((a, b) => a.d.localeCompare(b.d));
   let eq = 1, peak = 1, maxDD = 0;
-  for (const r of rets) { eq *= 1 + r * 0.02; peak = Math.max(peak, eq); maxDD = Math.max(maxDD, 1 - eq / peak); }
+  for (const { r } of chrono) { eq *= 1 + r * 0.02; peak = Math.max(peak, eq); maxDD = Math.max(maxDD, 1 - eq / peak); }
   return {
     trades: rets.length,
     winRate: wins.length / rets.length,
-    profitFactor: grossLoss > 0 ? grossWin / grossLoss : (grossWin > 0 ? 99 : 0),
+    // no 99 sentinel: a "zero-loss" variant over a real sample is almost always an
+    // artifact, not an edge. Floor the loss denominator at the friction actually paid
+    // so PF stays finite and can't trivially clear the Lab's promotion bar.
+    profitFactor: grossWin / Math.max(grossLoss, FRICTION_RT * rets.length),
     avgNetReturn: mean(rets) * 100,
     avgSpyReturn: mean(spyRets) * 100,
     excessVsSpy: (mean(rets) - mean(spyRets)) * 100,
@@ -123,3 +133,9 @@ function avg(bars: Bar[], idx: number, n: number): number { let s = 0; for (let 
 function avgVol(bars: Bar[], idx: number, n: number): number { let s = 0; for (let i = idx - n + 1; i <= idx; i++) s += bars[i].volume; return s / n; }
 function mean(a: number[]): number { return a.reduce((x, y) => x + y, 0) / a.length; }
 function daysBetween(a: string, b: string): number { return Math.abs((new Date(b).getTime() - new Date(a).getTime()) / 86400_000); }
+function addBusinessDays(dateStr: string, n: number): string {
+  const d = new Date(dateStr + "T00:00:00Z");
+  let added = 0;
+  while (added < n) { d.setUTCDate(d.getUTCDate() + 1); const wd = d.getUTCDay(); if (wd !== 0 && wd !== 6) added++; }
+  return d.toISOString().slice(0, 10);
+}

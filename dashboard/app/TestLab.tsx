@@ -7,24 +7,23 @@ import type { BenchResult } from "../../src/lib/benchcore.js";
 const pct = (x: number) => `${x >= 0 ? "+" : ""}${x.toFixed(1)}%`;
 const sign = (x: number) => (x > 0 ? "pos" : x < 0 ? "neg" : "flat");
 
-// Popular US names to test — meme / high-short-interest tickers that actually exercise the
-// squeeze engine (all US; the engine can't evaluate NSE names). Pick fills the ticker box.
+// Popular Indian (NSE) names — the target market. NOTE: the squeeze engine has no
+// short-interest feed for NSE (FINRA is US-only), so these are tested HYPOTHETICALLY: the
+// price replay is real, but days-to-cover is a value you supply, not live data. Picking one
+// prefills a placeholder DTC so Run produces an (illustrative) replay.
 const POPULAR: Array<{ sym: string; name: string }> = [
-  { sym: "GME", name: "GameStop" },
-  { sym: "AMC", name: "AMC Entertainment" },
-  { sym: "KOSS", name: "Koss" },
-  { sym: "BB", name: "BlackBerry" },
-  { sym: "CVNA", name: "Carvana" },
-  { sym: "BYND", name: "Beyond Meat" },
-  { sym: "UPST", name: "Upstart" },
-  { sym: "LCID", name: "Lucid" },
-  { sym: "RIVN", name: "Rivian" },
-  { sym: "SOFI", name: "SoFi" },
-  { sym: "HOOD", name: "Robinhood" },
-  { sym: "PLTR", name: "Palantir" },
-  { sym: "TSLA", name: "Tesla" },
-  { sym: "NVDA", name: "Nvidia" },
-  { sym: "AAPL", name: "Apple" },
+  { sym: "RELIANCE.NS", name: "Reliance Industries" },
+  { sym: "TCS.NS", name: "Tata Consultancy" },
+  { sym: "INFY.NS", name: "Infosys" },
+  { sym: "HDFCBANK.NS", name: "HDFC Bank" },
+  { sym: "ICICIBANK.NS", name: "ICICI Bank" },
+  { sym: "SBIN.NS", name: "State Bank of India" },
+  { sym: "TATAMOTORS.NS", name: "Tata Motors" },
+  { sym: "ADANIENT.NS", name: "Adani Enterprises" },
+  { sym: "BAJFINANCE.NS", name: "Bajaj Finance" },
+  { sym: "ITC.NS", name: "ITC" },
+  { sym: "WIPRO.NS", name: "Wipro" },
+  { sym: "CUPID.NS", name: "Cupid" },
 ];
 
 export default function TestLab({
@@ -43,6 +42,8 @@ export default function TestLab({
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [res, setRes] = useState<BenchResult | null>(null);
+
+  const isNSE = symbol.trim().toUpperCase().endsWith(".NS");
 
   async function run(e: React.FormEvent) {
     e.preventDefault();
@@ -109,10 +110,16 @@ export default function TestLab({
           />
         </div>
         <div className="field">
-          <label>Popular <span className="opt">(quick pick)</span></label>
+          <label>Popular NSE <span className="opt">(quick pick)</span></label>
           <select
             value={POPULAR.some((p) => p.sym === symbol) ? symbol : ""}
-            onChange={(e) => e.target.value && setSymbol(e.target.value)}
+            onChange={(e) => {
+              const v = e.target.value;
+              if (!v) return;
+              setSymbol(v);
+              // NSE has no short-interest feed — prefill a placeholder DTC so Run yields a replay.
+              if (v.endsWith(".NS") && dtc.trim() === "") setDtc("5");
+            }}
           >
             <option value="">— choose —</option>
             {POPULAR.map((p) => (
@@ -121,8 +128,16 @@ export default function TestLab({
           </select>
         </div>
         <div className="field">
-          <label>Days-to-cover <span className="opt">(optional)</span></label>
-          <input value={dtc} onChange={(e) => setDtc(e.target.value)} placeholder="auto" inputMode="decimal" />
+          <label>
+            Days-to-cover{" "}
+            <span className="opt">{isNSE ? "(required — NSE)" : "(optional)"}</span>
+          </label>
+          <input
+            value={dtc}
+            onChange={(e) => setDtc(e.target.value)}
+            placeholder={isNSE ? "e.g. 5" : "auto"}
+            inputMode="decimal"
+          />
         </div>
         <div className="field">
           <label>Years</label>
@@ -145,6 +160,16 @@ export default function TestLab({
           {loading ? "Running…" : "Run engine"}
         </button>
       </form>
+
+      {isNSE && (
+        <div className="panel boundary small">
+          <strong>NSE — hypothetical test.</strong> The engine has no short-interest feed for
+          Indian stocks (FINRA is US-only), so the price replay is real but{" "}
+          <em>days-to-cover is a value you supply</em>, not live data. Read the result as an
+          illustration of how the engine reasons, not proof of an edge. A true India target
+          needs an NSE/SEBI short-interest source wired in.
+        </div>
+      )}
 
       {err && <div className="panel error">✗ {err}</div>}
 

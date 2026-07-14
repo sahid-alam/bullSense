@@ -8,7 +8,7 @@
 import { fetchDailyBars } from "../providers/prices.js";
 import {
   getLiveGenomes, squeezeCandidates, latestShortInterestDate, signalExistsWithin,
-  insertSignal, getProfiles, getLatestRegime, type GenomeRow,
+  insertSignal, getProfiles, getLatestRegime, latestTreasuryState, getOpenPositions, type GenomeRow,
 } from "../providers/store.js";
 import { sendTelegram } from "../providers/telegram.js";
 import { evaluateEntry, conviction, invalidationPrice, timeStopDate, type Features } from "./genome.js";
@@ -36,6 +36,18 @@ export async function runSqueezeScout(): Promise<SqueezeReport> {
   report.candidates = candidates.length;
   const profiles = await getProfiles();
 
+  // Portfolio-aware sizing state per profile: real peak equity + real open heat, so the
+  // Treasury heat cap and drawdown throttle actually engage instead of the old
+  // 0-heat / equity-as-peak stubs that silently disabled both guardrails.
+  const book = new Map<string, { equity: number; peak: number; heat: number }>();
+  for (const p of profiles) {
+    const st = await latestTreasuryState(p.id);
+    const equity = st?.equity ?? p.equity;
+    const open = await getOpenPositions(p.id);
+    const heat = open.reduce((a, o) => a + (Number(o.risk_budget_pct) || 0), 0);
+    book.set(p.id, { equity, peak: st?.peak_equity ?? equity, heat });
+  }
+
   for (const cand of candidates) {
     let bars;
     try { bars = await fetchDailyBars(cand.symbol, "1y"); } catch { continue; }
@@ -47,7 +59,7 @@ export async function runSqueezeScout(): Promise<SqueezeReport> {
     const closes = bars.map((b) => b.close);
     const ma20 = closes.slice(-20).reduce((a, b) => a + b, 0) / 20;
     const prevMa20 = closes.slice(-21, -1).reduce((a, b) => a + b, 0) / 20;
-    const vol20 = bars.slice(-20).reduce((a, b) => a + b.volume, 0) / 20;
+    const vol20 = bars.slice(-21, -1).reduce((a, b) => a + b.volume, 0) / 20; // prior 20 bars, excl. today
     const relVol = vol20 > 0 ? last.volume / vol20 : 0;
     const low20 = Math.min(...bars.slice(-20).map((b) => b.low));
 
@@ -89,10 +101,12 @@ export async function runSqueezeScout(): Promise<SqueezeReport> {
     if (regimeAllowed && signalId) {
       for (const p of profiles) {
         if (!p.telegram_chat_id) continue;
+        const b = book.get(p.id)!;
         const size = sizePosition({
-          equity: p.equity, peakEquity: p.equity, regime, conviction: conv,
-          entryPrice: entry, invalidationPrice: inval, currentHeatPct: 0, prefs: p.risk_prefs as RiskPrefs,
+          equity: b.equity, peakEquity: b.peak, regime, conviction: conv,
+          entryPrice: entry, invalidationPrice: inval, currentHeatPct: b.heat, prefs: p.risk_prefs as RiskPrefs,
         });
+        if (size.approved) b.heat += size.riskBudgetPct; // this alert's risk counts against later signals tonight
         const sizeLine = size.approved
           ? `Treasury size: *${size.qty} shares* (${(size.riskBudgetPct * 100).toFixed(1)}% risk, max loss ~${(size.qty * (entry - inval)).toFixed(0)})`
           : `Treasury: *no position* — ${size.reason}`;

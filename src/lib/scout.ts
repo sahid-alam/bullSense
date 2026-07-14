@@ -7,7 +7,7 @@
 import { fetchDailyBars } from "../providers/prices.js";
 import {
   getLiveGenomes, getSentimentHistory, getActiveHypeSymbols, signalExistsWithin,
-  insertSignal, getProfiles, getLatestRegime, type GenomeRow,
+  insertSignal, getProfiles, getLatestRegime, latestTreasuryState, getOpenPositions, type GenomeRow,
 } from "../providers/store.js";
 import { sendTelegram } from "../providers/telegram.js";
 import { evaluateEntry, conviction, invalidationPrice, timeStopDate, type Features } from "./genome.js";
@@ -42,6 +42,18 @@ export async function runHypeScout(): Promise<SweepReport> {
   const symbols = (await getActiveHypeSymbols(6)).slice(0, TOP_N);
   const profiles = await getProfiles();
 
+  // Portfolio-aware sizing state per profile (same as the squeeze scout): real peak
+  // equity + real open heat so the heat cap and drawdown throttle actually engage.
+  // ponytail: duplicated with squeeze.ts; extract a shared helper if a third scout appears.
+  const book = new Map<string, { equity: number; peak: number; heat: number }>();
+  for (const p of profiles) {
+    const st = await latestTreasuryState(p.id);
+    const equity = st?.equity ?? p.equity;
+    const open = await getOpenPositions(p.id);
+    const heat = open.reduce((a, o) => a + (Number(o.risk_budget_pct) || 0), 0);
+    book.set(p.id, { equity, peak: st?.peak_equity ?? equity, heat });
+  }
+
   for (const symbol of symbols) {
     report.evaluated++;
     // current mentions = latest snapshot
@@ -60,7 +72,7 @@ export async function runHypeScout(): Promise<SweepReport> {
     if (bars.length < 21) continue;
     const last = bars[bars.length - 1];
     const prev = bars[bars.length - 2];
-    const vol20 = bars.slice(-20).reduce((a, b) => a + b.volume, 0) / 20;
+    const vol20 = bars.slice(-21, -1).reduce((a, b) => a + b.volume, 0) / 20; // prior 20 bars, excl. today
     const relVol = vol20 > 0 ? last.volume / vol20 : 0;
     const dayChange = (last.close / prev.close - 1) * 100;
 
@@ -112,10 +124,12 @@ export async function runHypeScout(): Promise<SweepReport> {
     if (regimeAllowed && signalId) {
       for (const p of profiles) {
         if (!p.telegram_chat_id) continue;
+        const b = book.get(p.id)!;
         const size = sizePosition({
-          equity: p.equity, peakEquity: p.equity, regime, conviction: conv,
-          entryPrice: entry, invalidationPrice: inval, currentHeatPct: 0, prefs: p.risk_prefs as RiskPrefs,
+          equity: b.equity, peakEquity: b.peak, regime, conviction: conv,
+          entryPrice: entry, invalidationPrice: inval, currentHeatPct: b.heat, prefs: p.risk_prefs as RiskPrefs,
         });
+        if (size.approved) b.heat += size.riskBudgetPct; // this alert's risk counts against later signals this sweep
         const sizeLine = size.approved
           ? `Treasury size: *${size.qty} shares* (${(size.riskBudgetPct * 100).toFixed(1)}% risk, max loss ~${(size.qty * (entry - inval)).toFixed(0)})`
           : `Treasury: *no position* — ${size.reason}`;

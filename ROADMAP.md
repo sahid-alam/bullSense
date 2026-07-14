@@ -47,16 +47,16 @@ The autonomous US engine, live on GitHub Actions + Supabase at ~$0/mo, all jobs 
 
 ---
 
-## Phase A1 — The Advisor Card + Screener (⬜)
+## Phase A1 — The Advisor Card + Screener (✅ COMPLETE)
 
-*Goal: deliver the "expert advisor" feel — answer the six questions for any stock, and stand up a daily "what has potential" list. Mostly composing pieces that already exist.*
+*Goal: deliver the "expert advisor" feel — answer the six questions for any stock, and stand up a daily "what has potential" list.*
 
-- ⬜ **Advisor Card** — one artifact per stock: market read · potential verdict · enter/avoid · lot size · stop · target. Reuses Radar + Treasury + invalidation + target (built); the new piece is a **horizon-aware potential verdict** for any priceable ticker.
-- ⬜ Broaden the dossier/verdict path beyond US-EDGAR so it works on price + available data alone (needed for NSE names).
-- ⬜ **Screener** — a standing daily *ranked* potential list over the universe (momentum, delivery trend, volume quality, 52-week positioning), each rank citing its components. Answers "which stocks have potential" **every day**, not only when a signal fires.
-- ⬜ Surface both in the dashboard (new screen) + Telegram (`/card SYMBOL`, `/screener`).
+- ✅ **Advisor Card** (`src/lib/advisor.ts` `buildAdvisorCard`) — one artifact per stock (US or NSE): market read · potential · enter/avoid · lot size · stop · target. Reuses Radar + Treasury; deterministic potential score (trend/momentum/structure/participation, each cited) + verdict; NSE enriched by archived delivery-% trend + F&O PCR. LLM only narrates.
+- ✅ **Honesty (freeze-and-score)** — a sniff-test showed pure momentum's bottom decile beat its top, so the verdict is labeled INTERIM HEURISTIC, frozen immutably in `advisor_cards`, and scored vs benchmark by `markCards()` in nightly. Real alpha remains A2's gauntlet-validated job.
+- ✅ **Screener** (`screener_india` RPC) — standing ranked NSE list from the archive: 1m/3m momentum, delivery-% trend, relative volume (factors scoped honestly to the ~78-day depth — no fake 52-week/200DMA).
+- ✅ **Surfaced** — dashboard `/advisor` + `/screener` screens, and Telegram `/card SYMBOL` (queue → real engine, no drift) + `/screener` (RPC). Edge fn v13.
 
-**Exit bar:** ask BullSense about any stock and get all six answers in one card; open the dashboard and see today's ranked shortlist.
+**Exit bar:** ✅ MET — ask about any stock, get all six answers; dashboard shows today's ranked shortlist; every verdict frozen & scored.
 
 ---
 

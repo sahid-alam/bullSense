@@ -20,10 +20,14 @@
  */
 import { fetchDailyBars, type Bar } from "../providers/prices.js";
 import { fetchLatestShortInterest } from "../providers/shortinterest.js";
-import { getLatestRegime, getLiveGenomes, storeAvailable } from "../providers/store.js";
+import { getLatestRegime, getLiveGenomes, storeAvailable, getProfiles, latestTreasuryState, getOpenPositions } from "../providers/store.js";
 import { evaluateEntry, conviction, invalidationPrice, timeStopDate, type Features, type GenomeDef } from "../lib/genome.js";
 import { backtestSqueeze, type SIRow, type TradeDetail } from "../lib/backtest.js";
 import { sizePosition, type Regime, type RiskPrefs } from "../lib/treasury.js";
+
+// Load .env so a local run reads the LIVE engine state (regime, genome, account) from
+// Supabase. In CI the env is injected directly and there is no .env file — hence the catch.
+try { process.loadEnvFile(".env"); } catch { /* no .env file — env already set (CI) */ }
 
 // The live squeeze genome (fallback mirrors genomes.squeeze-setup-v1 exactly, for offline runs).
 const FALLBACK_GENOME: GenomeDef = {
@@ -167,19 +171,40 @@ async function main() {
   if (trades.length > 0) {
     const t = trades[trades.length - 1];
     const conv = conviction("squeeze", { days_to_cover: dtc, rel_volume: minRv, si_pct_float: 0.2 });
+
+    // Default: hypothetical account (--equity, flat, no open heat). With --profile <id> and a
+    // live store, size against the REAL account — equity, peak, and open heat — exercising the
+    // same portfolio-aware path the nightly scouts use (latestTreasuryState + getOpenPositions).
+    let acctEquity = equity, peak = equity, heat = 0, prefs = DEFAULT_PREFS, acctLabel = `hypothetical ₹${equity.toLocaleString()}`;
+    const profileId = arg("--profile");
+    if (profileId && storeAvailable()) {
+      const prof = (await getProfiles()).find((p) => p.id === profileId);
+      if (!prof) { line(`(--profile ${profileId} not found; using hypothetical account)`); }
+      else {
+        const st = await latestTreasuryState(prof.id);
+        const open = await getOpenPositions(prof.id);
+        acctEquity = st?.equity ?? prof.equity;
+        peak = st?.peak_equity ?? acctEquity;
+        heat = open.reduce((a, o) => a + (Number(o.risk_budget_pct) || 0), 0);
+        prefs = { ...DEFAULT_PREFS, ...(prof.risk_prefs ?? {}) };
+        acctLabel = `${prof.id}: ₹${Math.round(acctEquity).toLocaleString()} equity, peak ₹${Math.round(peak).toLocaleString()}, ${(heat * 100).toFixed(1)}% open heat`;
+      }
+    }
+
     const size = sizePosition({
-      equity, peakEquity: equity, regime, conviction: conv,
-      entryPrice: t.entry, invalidationPrice: t.invalidation, currentHeatPct: 0, prefs: DEFAULT_PREFS,
+      equity: acctEquity, peakEquity: peak, regime, conviction: conv,
+      entryPrice: t.entry, invalidationPrice: t.invalidation, currentHeatPct: heat, prefs,
     });
     rule();
     line(`LIVE DECISION on the most recent fire (${t.entryDate}) — what the desk would have told you:`);
     line(`  Conviction ${conv}/100 · entry ~${t.entry.toFixed(2)} · invalidation ${t.invalidation.toFixed(2)} · time-stop ${timeStopDate(t.entryDate, genome.exit.time_stop_days)}`);
+    line(`  Account: ${acctLabel} · regime ${regime}`);
     if (size.approved) {
-      line(`  Treasury (₹${equity.toLocaleString()} equity, ${regime} regime): ${size.qty} shares · ${(size.riskBudgetPct * 100).toFixed(1)}% risk · max loss ~${(size.qty * (t.entry - t.invalidation)).toFixed(0)}`);
-      line(`  Reason: ${size.reason}`);
+      line(`  Treasury: *${size.qty} shares* · ${(size.riskBudgetPct * 100).toFixed(1)}% risk · max loss ~${(size.qty * (t.entry - t.invalidation)).toFixed(0)} — ${size.reason}`);
     } else {
       line(`  Treasury: NO POSITION — ${size.reason}`);
     }
+    if (!profileId) line(`  (tip: --profile sahid sizes against the real account — equity, peak & open heat)`);
   }
 
   // ── 6. RIGHT-NOW snapshot (secondary) ────────────────────────────

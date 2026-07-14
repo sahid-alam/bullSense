@@ -41,9 +41,9 @@ The autonomous US engine, live on GitHub Actions + Supabase at ~$0/mo, all jobs 
 - ✅ `src/providers/nse.ts` — equity bars + **delivery %** (sec_bhavdata_full) + **FII/DII** flows + **F&O open interest** aggregated per underlying (futures/call/put OI + PCR, via fflate zip). *(India VIX/NIFTY fetched live from Yahoo by India Radar, not archived — reconstructable.)*
 - ✅ Tables `nse_equity` / `fii_dii_flows` / `nse_fno_oi` / `india_archive_runs`; keyed on the in-file date (idempotent).
 - ✅ `src/jobs/india-archive.ts` (+ throttled `--backfill`) + daily GitHub Action 15:30 UTC. Verified in CI. Delivery % + FII/DII + F&O PCR all landing (NIFTY PCR trend 0.81→1.43/wk).
-- ⬜ Fast-follow *(optional)*: deeper multi-year backfill run (throttle now in place); historical F&O backfill.
+- ✅ Backfilled 78 equity trading days (~6mo, Jan–Jul 2026). Source limits noted: NSE keeps F&O UDiFF only ~1mo (19 days, accretes forward); FII/DII API is latest-day-only (forward capture). Deeper equity backfill possible but gated on R2 offload before it eats the free tier.
 
-**Exit bar:** ✅ **MET** — India archive accreting daily (equity+delivery, FII/DII, F&O OI) AND the engine can't fail silently (failure paging + watchdog + backup). **A0 complete** but for the two operator actions (key rotation, optional healthchecks URL).
+**Exit bar:** ✅ **MET** — India archive accreting daily (equity+delivery, FII/DII, F&O OI; 6mo equity history seeded) AND the engine can't fail silently (failure paging + watchdog + backup). **A0 BUILD COMPLETE.** Only two *operator* actions remain (not code): key rotation, and the optional `HEALTHCHECKS_URL` secret to arm the external watchdog layer.
 
 ---
 

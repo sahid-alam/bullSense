@@ -461,6 +461,27 @@ export async function upsertFnoOi(rows: any[]): Promise<void> {
   }
 }
 
+/** India accumulation read: recent-5 vs prior-20 avg delivery %, from the archive (NSE only). */
+export async function nseDeliveryTrend(symbol: string): Promise<{ recent: number; base: number; latest: number; date: string } | null> {
+  const rows = await rest(`nse_equity?select=trade_date,deliv_per&symbol=eq.${encodeURIComponent(symbol)}&series=eq.EQ&deliv_per=not.is.null&order=trade_date.desc&limit=25`, { method: "GET", headers: { Prefer: "return=representation" } });
+  if (!rows?.length) return null;
+  const v = rows.map((r: any) => Number(r.deliv_per));
+  const avg = (a: number[]) => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
+  return { latest: v[0], recent: avg(v.slice(0, 5)), base: avg(v.slice(5, 25)), date: rows[0].trade_date };
+}
+
+/** Latest F&O positioning (PCR + futures OI change) for an underlying, if it trades in F&O. */
+export async function nseFnoLatest(underlying: string): Promise<{ pcr: number | null; futures_oi_chg: number | null; date: string } | null> {
+  const rows = await rest(`nse_fno_oi?select=pcr,futures_oi_chg,trade_date&underlying=eq.${encodeURIComponent(underlying)}&order=trade_date.desc&limit=1`, { method: "GET", headers: { Prefer: "return=representation" } });
+  return rows?.[0] ? { pcr: rows[0].pcr, futures_oi_chg: rows[0].futures_oi_chg, date: rows[0].trade_date } : null;
+}
+
+/** Freeze an advisor card verdict (immutable receipt) so calibration can accrue. */
+export async function insertAdvisorCard(c: any): Promise<number | null> {
+  const rows = await rest("advisor_cards", { method: "POST", body: JSON.stringify([c]), headers: { Prefer: "return=representation" } });
+  return rows?.[0]?.id ?? null;
+}
+
 /** Most recent equity trade_date already archived (for skip-if-present + freshness). */
 export async function latestNseEquityDate(): Promise<string | null> {
   const rows = await rest("nse_equity?select=trade_date&order=trade_date.desc&limit=1", { method: "GET", headers: { Prefer: "return=representation" } });

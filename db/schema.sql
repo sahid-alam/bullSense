@@ -171,6 +171,18 @@ create table if not exists india_archive_runs (
   trade_date date, equity_rows int, fii_dii_rows int, status text, detail text
 );
 
+-- Advisor Card verdicts (A1), frozen at creation so calibration accrues. Verdict is an
+-- INTERIM HEURISTIC (unvalidated) — freezing + scoring is how we learn if it predicts.
+create table if not exists advisor_cards (
+  id bigserial primary key, symbol text not null, market text not null,
+  horizon text not null default 'invest', as_of date not null, created_at timestamptz not null default now(),
+  potential int, verdict text, entry numeric, stop numeric, target numeric, risk_reward numeric,
+  suggested_qty int, risk_pct numeric, profile_id text, regime text, factors jsonb, rationale text,
+  benchmark_at_creation numeric,
+  marked_at timestamptz, forward_return_pct numeric, benchmark_return_pct numeric, outcome text
+);
+-- (immutability trigger forbid_advisor_card_mutation defined in migration advisor_cards)
+
 create table if not exists book_events (
   id            bigserial primary key,
   profile_id    text not null references profiles(id),

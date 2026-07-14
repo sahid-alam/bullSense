@@ -458,6 +458,49 @@ The Treasury, the receipts immutability, the calibration discipline, the Lab, th
 2. **India data + India-native families (A2):** no FINRA equivalent exists for NSE — so no transplanted squeeze strategy. Wire delivery %, F&O open interest, bulk/block deals; breed India-native genomes (delivery-surge, OI-buildup, momentum-breakout) through the same anti-overfitting gauntlet; benchmark the personal book against NIFTY, not SPY.
 3. **Scalp Desk (A3, gated on A2):** real-time intraday data + a persistent worker (GitHub Actions cannot do this) + scalp genomes — paper-only until PF ≥ 1.3 over ≥100 scalps net of intraday friction, with a max-daily-loss breaker and trades-per-day cap. Scalping is the highest-failure retail activity that exists; it gets the tightest leash in the whole system or it doesn't get built.
 
+## Part 8C — THE ROBUSTNESS PASS (v10): fine-tuning the desk to maximum
+
+*2026-07-14. A deliberate brainstorm pass over the whole v9 idea: where is it weak, what would an expert desk require that we lack, what makes it robust. FINAL.md v6 carries the amendments; this is the reasoning log.*
+
+### 11.1 The sharpest finding: the plumbing outclasses the engine
+The honesty machinery (Treasury, receipts, Lab, guards) is genuinely strong. The **alpha layer is one weak family** — the bench proved Squeeze loses to SPY on its flagship name (PF 0.67 on GME). The highest-leverage improvement is not another feature; it is **more strategy hypotheses through the existing gauntlet, on better data**. Everything below serves that or protects it.
+
+### 11.2 The archive-first doctrine (the single most time-sensitive decision)
+Point-in-time market data is unbackfillable in spirit: you can re-download old prices, but you cannot re-create *what was knowable when*. NSE publishes free daily gold — bhavcopy with **delivery %**, F&O bhavcopy (**open interest**), **FII/DII flows**, **India VIX** — and we archive none of it. **Start the India Archivist immediately, before any India strategy exists.** Every day not archiving is a day of point-in-time history lost; the strategies get bred later on data that only exists because we started now.
+
+### 11.3 Operational robustness (protect what already runs) — T1
+1. **Dead-man's switch** — GitHub disables scheduled workflows on 60 days of repo inactivity, and free-tier infra can pause silently. An external heartbeat (healthchecks.io free tier, pinged by nightly) alerts Telegram if the engine goes quiet ~36h. The system must not be able to die silently.
+2. **Failure alerts** — a failed job currently just logs to `job_runs`; it must page the operators on Telegram the same hour.
+3. **Price-provider fallback** — Yahoo's chart API is unofficial and a single point of failure; abstract the provider and add a fallback (Stooq for US, NSE bhavcopy for `.NS`).
+4. **Weekly DB backup** — scheduled `pg_dump` to storage. The receipts are the project's irreplaceable asset.
+5. **Key rotation** — still pending; do it.
+
+### 11.4 India foundation — T2
+6. **India Archivist** (new job, ~15:30 UTC): bhavcopy + delivery % + F&O OI + FII/DII + India VIX → new tables. Free, cron-friendly.
+7. **India Radar** — the regime organ rebuilt for the home market: India VIX (level + trend), NIFTY trend & breadth (% of NIFTY-500 above 50DMA from bhavcopy), FII/DII 5-day net flow, INR/USD + Brent stress. Same 0–100 score, same hysteresis. The INR book gets its own weather report instead of borrowing America's.
+8. **India-native families** (bred in the Lab on the archive, later): delivery-surge (rising delivery % + price confirm), OI-buildup (futures OI rising with price on volume), 52-week-breakout momentum, FII-flow tailwind. No transplanted squeeze.
+9. **India friction model** — net-of-friction expectancy using real India numbers: STT (0.1% delivery / 0.025% intraday sell), brokerage, STCG 20% / LTCG 12.5%, intraday taxed as business income. NIFTY replaces SPY for personal books.
+
+### 11.5 Advisor completeness — T3
+10. **Advisor Card** (A1, already planned) — the six-question artifact.
+11. **Screener / Potential Ranker** — a *standing* daily ranked list over the universe (momentum, delivery trend, volume quality, distance-from-52w-high, volatility fit), each rank with cited components. Q2 ("which stocks have potential") answered every day, event-independent — not only when a signal fires.
+12. **News Sentry** — RSS (Moneycontrol/ET) + NSE corporate announcements on book names → LLM triage (relevant? severity?) → Watchtower events. Closes the exact Cupid gap: "no negative news — so why is it crashing?" now gets checked by a machine, nightly.
+13. **Calendar organ** — earnings dates, F&O expiry (violent in India), ex-dividend, RBI/budget dates → "you hold X through earnings in 3 days" becomes a Watchtower flag, not a surprise.
+14. **Trade post-mortems** — every closed position auto-generates one: was the thesis right or lucky, was the exit followed, which guard fired. Feeds the weekly review and the calibration story.
+
+### 11.6 Intelligence upgrades (later; each must earn its place) — T4
+15. Ensemble conviction — families voting on the same name; disagreement itself is signal.
+16. Multi-timeframe confirmation — weekly-trend filter on daily entries (the Lab already tests `requireAbove50ma`).
+17. Regime-conditional capital allocation across families (portfolio-level fitness, planned in v4, kept).
+18. Lab gauntlet upgrades — deflated Sharpe, purged walk-forward.
+
+### 11.7 Considered and REJECTED (so we don't re-litigate)
+- **India options strategies** — F&O lot sizes are too large relative to our capital for defined-risk spreads; revisit at bigger equity.
+- **Real-time streaming for the INVEST horizon** — daily/hourly cadence is correct; real-time belongs to the gated Scalp Desk only.
+- **Social sentiment for India** — no ApeWisdom equivalent; delivery % + news triage is higher-quality information than Indian finfluencer chatter.
+- **LLM in the execution path** — the LLM invents hypotheses (Lab) and writes narratives; entries/exits/sizing stay deterministic code, always.
+- **Broker auto-execution** — unchanged: gated by Guardrail 3, not by enthusiasm.
+
 ## Part 9 — Sources
 - Journals: https://www.tradezella.com/vs/tradervue · https://www.stockbrokers.com/review/tools/tradezella · https://traderssecondbrain.com/guides/tradezella-vs-tradervue
 - Automation/copy: https://www.composer.trade/ · https://opentools.ai/tools/composer-trade · https://surmount.ai/blogs/composer-vs-surmount-which-automated-trading-platform-is-best-for-you

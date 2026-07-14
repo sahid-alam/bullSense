@@ -1,6 +1,6 @@
 # BullSense — The Final Project Idea
 
-*v5 — 2026-07-14. This document supersedes where it conflicts. IDEA.md is the evolution log (v1→v9); SCOPE.md is the P0 engineering spec (stack section superseded by §4 below). v2 added §3A: structured profit + the Treasury. v3 revised the cost philosophy to best-value-per-dollar. v4 made the goal hierarchy explicit and pulled the Lab forward. **v5 is the mandate broadening: BullSense is not a one-setup signal engine — it is a complete investment desk. Two horizons (INVEST: swing/position over days–months; SCALP: intraday), one home market (India/NSE first, US as the proving ground), and one advisor contract: for any stock it must answer — is the market safe, does this stock have potential, should you enter, at what size, with what stop, toward what target. §2A defines the horizons; §2B faces the India data reality honestly.***
+*v6 — 2026-07-14. This document supersedes where it conflicts. IDEA.md is the evolution log (v1→v10); SCOPE.md is the P0 engineering spec (stack section superseded by §4 below). v2 added §3A: structured profit + the Treasury. v3 revised the cost philosophy. v4 made the goal hierarchy explicit and pulled the Lab forward. v5 broadened the mandate: a complete investment desk — two horizons (INVEST / SCALP, §2A), India-first (§2B), six-question advisor contract (§1). **v6 is the robustness pass (IDEA.md Part 8C): the sharpest finding is that the plumbing outclasses the engine — one weak signal family is the bottleneck — so v6 adds the archive-first doctrine (start archiving NSE point-in-time data immediately, §2C), operational hardening so the desk cannot die silently, and the organs an expert desk was still missing: India Radar, Screener, News Sentry, Calendar, and trade post-mortems.***
 
 ---
 
@@ -51,6 +51,20 @@ It is:
 | **Capital discipline** | **The Treasury** | the missing governor: converts every idea into a *sized, capped, regime-scaled* position — see §3A |
 | **The answer** | **Advisor Card** *(v5, new)* | the six-question contract (§1) rendered as one artifact per stock: market read · potential verdict · enter/avoid · exact lot size · stop · target — every field traceable to the organ that produced it |
 | **Speed** | **Scalp Desk** *(v5, new — build-gated)* | the intraday arm: same Treasury math, same receipts, compressed to minutes–hours; paper-only until it clears its own, stricter gauntlet (§2A) |
+| **Memory of the market** | **India Archivist** *(v6, new — start immediately)* | daily point-in-time archive of NSE bhavcopy (incl. delivery %), F&O open interest, FII/DII flows, India VIX — the unbackfillable raw material every India strategy will be bred on (§2C) |
+| **Home weather** | **India Radar** *(v6, new)* | the regime organ rebuilt for the INR book: India VIX, NIFTY trend & breadth, FII/DII 5-day flow, INR/USD + crude stress → same 0–100 score with hysteresis |
+| **Standing opinion** | **Screener** *(v6, new)* | a daily *ranked* potential list over the whole universe (momentum, delivery trend, volume quality, 52w positioning) with cited components — Q2 answered every day, not only when a signal fires |
+| **Catalyst awareness** | **News Sentry + Calendar** *(v6, new)* | nightly LLM triage of news/announcements on book names (closes the Cupid gap: "why is it crashing?" gets machine-checked) + earnings/F&O-expiry/ex-dividend/RBI dates as Watchtower flags |
+| **Self-examination** | **Post-mortems** *(v6, new)* | every closed trade auto-generates one: thesis right or lucky · exit followed · which guard fired — feeds the weekly review and calibration |
+
+## 2C. Robustness doctrine (v6) — the desk must not be able to die silently
+
+1. **Archive-first.** Point-in-time data is the one asset that cannot be bought later. The India Archivist ships *before* any India strategy — strategies are bred later on history that exists only because we started archiving now.
+2. **Dead-man's switch.** GitHub disables schedules on repo inactivity; free tiers pause quietly. An independent heartbeat monitor (healthchecks.io-class, pinged by nightly) alerts Telegram if the engine is silent ~36h.
+3. **Failures page us.** A failed job posts to Telegram the same hour — not just a row in `job_runs`.
+4. **No single data artery.** Yahoo's chart API is unofficial; the price provider gets a fallback (Stooq for US, bhavcopy for `.NS`) behind one interface.
+5. **The receipts are backed up.** Weekly `pg_dump` to storage — the immutable track record is the project's irreplaceable asset.
+6. **India friction is real friction.** Net expectancy for INR trades uses India's actual numbers — STT (0.1% delivery / 0.025% intraday sell), brokerage, STCG 20% / LTCG 12.5%, intraday-as-business-income — and personal books benchmark against NIFTY, not SPY.
 
 ## 2A. The two horizons — one discipline, two speeds
 
@@ -186,11 +200,12 @@ A structured-profit goal realized in a taxable account faces a materially differ
 5. **Months 5–8 — The mind:** **Lab v1→v2** (full LLM-hypothesis generation, new-genome invention, the anti-overfitting gauntlet, live incubation, autonomous promote/retire, public graveyard — fitness judged at the portfolio level), **Ledger of Beliefs**, full paper fund with public-to-us equity curve **and CAGR/drawdown/Sharpe reporting** (§3A), chat interrogation via Telegram, **override receipts** live. **Conviction escalation (§3A Rule 6) goes live the moment any genome earns it** — ≥50 closed signals with a validated calibration curve and net PF ≥ 1.3 — rather than waiting for a fixed calendar date.
 6. **Month 9+ — The hands (only if earned):** small real-money sleeve under Guardrail 3's full Treasury caps. And the quiet optionality: a healthy year of receipts + calibration + risk-adjusted fund performance means the commercial plan (IDEA.md v7) reactivates any time we choose, with an unfakeable founding story.
 
-**The v5 continuation — the desk phases (sequenced after the engine above, which is built):**
+**The v5/v6 continuation — the desk phases (sequenced after the engine above, which is built):**
 
-7. **A1 — The Advisor Card (weeks, not months):** compose the six-question contract (§1) into one artifact per stock, surfaced in the dashboard Test Lab and Telegram. Nearly all fields already exist (Radar, Treasury sizing, stop, target); the new work is the *potential verdict* — extending the dossier pipeline from "US EDGAR deep-dive" to a horizon-aware enter/avoid verdict that works for any priceable ticker.
-8. **A2 — India data + India-native families:** wire NSE delivery %, F&O open interest, and bulk/block-deal data; breed delivery-surge / OI-buildup / momentum-breakout genomes through the Lab's full anti-overfitting gauntlet on NSE history; switch personal-book benchmarks to NIFTY. Exit bar: an India genome clears the same PF ≥ 1.3 / 30-closed-signals gauntlet the US families face.
-9. **A3 — The Scalp Desk (gated on A2 shipping and proving):** a persistent intraday worker (not GitHub Actions), 1-min NSE data, scalp genomes bred in the Lab, paper-only under Guardrail 10's stricter gauntlet — ≥100 paper scalps net of intraday friction, max-daily-loss breaker, trades-per-day cap. Real rupees only after that, in a capped sleeve.
+7. **A0 — Hardening + the Archivist (days; do first, v6):** the dead-man's switch, failure→Telegram paging, price-provider fallback, weekly DB backup, key rotation — the desk becomes unable to die silently. **And the India Archivist starts the same week:** daily bhavcopy + delivery % + F&O OI + FII/DII + India VIX into new tables. Cheap, boring, and the most time-sensitive item in the plan — every day unarchived is point-in-time history gone.
+8. **A1 — The Advisor Card (weeks, not months):** compose the six-question contract (§1) into one artifact per stock, surfaced in the dashboard Test Lab and Telegram. Nearly all fields already exist (Radar, Treasury sizing, stop, target); the new work is the *potential verdict* — extending the dossier pipeline to a horizon-aware enter/avoid verdict for any priceable ticker. The **Screener** (standing daily ranked list) ships here too — Q2 answered daily, event-independent.
+9. **A2 — India intelligence:** the **India Radar** (regime for the INR book), **News Sentry + Calendar** on book names, India friction model + NIFTY benchmarks; then breed India-native families (delivery-surge / OI-buildup / momentum-breakout) through the Lab's full anti-overfitting gauntlet on the accumulating archive. Exit bar: an India genome clears the same PF ≥ 1.3 / 30-closed-signals gauntlet the US families face. **Post-mortems** ship alongside (they need closed trades to chew on).
+10. **A3 — The Scalp Desk (gated on A2 shipping and proving):** a persistent intraday worker (not GitHub Actions), 1-min NSE data, scalp genomes bred in the Lab, paper-only under Guardrail 10's stricter gauntlet — ≥100 paper scalps net of intraday friction, max-daily-loss breaker, trades-per-day cap. Real rupees only after that, in a capped sleeve.
 
 ## 7. The one-sentence version
 

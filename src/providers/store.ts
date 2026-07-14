@@ -557,6 +557,46 @@ export async function fiiDiiDailyNet(limit = 60): Promise<Array<{ date: string; 
   return [...byDate.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([date, net]) => ({ date, net }));
 }
 
+// ===== India-native signal-family Lab (A2) =====
+
+/** F&O-eligible underlyings — the tradeable universe for the India backtest (liquid names
+ *  only; keeps the archive query small and matches a realistic personal book). Scoped to the
+ *  latest archived date (one row per underlying that day, well under PostgREST's row cap) —
+ *  an unbounded distinct-underlying query over the whole F&O archive would silently truncate
+ *  the same way the equity bars query did (see nseEquityBarsForUniverse). */
+export async function nseFnoUniverse(): Promise<string[]> {
+  const latest = await rest("nse_fno_oi?select=trade_date&order=trade_date.desc&limit=1", { method: "GET", headers: { Prefer: "return=representation" } });
+  const d = latest?.[0]?.trade_date;
+  if (!d) return [];
+  const rows = await rest(`nse_fno_oi?select=underlying&trade_date=eq.${d}`, { method: "GET", headers: { Prefer: "return=representation" } });
+  return [...new Set((rows ?? []).map((r: any) => r.underlying))] as string[];
+}
+
+/** Archived EQ-series bars (+ delivery %) for a symbol universe, grouped per symbol, oldest→newest.
+ *  Chunked: PostgREST caps rows per response (Supabase default 1000) regardless of `limit=`, so a
+ *  wide `in.()` list over ~1y of daily bars silently truncates to whichever symbols sort first —
+ *  chunk small enough (8 symbols × ~365d < 1000) that every chunk fits under the cap. */
+export async function nseEquityBarsForUniverse(symbols: string[]): Promise<Map<string, Array<{ date: string; open: number; high: number; low: number; close: number; volume: number; deliveryPct: number | null }>>> {
+  const bySymbol = new Map<string, Array<{ date: string; open: number; high: number; low: number; close: number; volume: number; deliveryPct: number | null }>>();
+  const CHUNK = 8;
+  for (let i = 0; i < symbols.length; i += CHUNK) {
+    const inList = symbols.slice(i, i + CHUNK).map((s) => encodeURIComponent(s)).join(",");
+    const rows = await rest(
+      `nse_equity?select=symbol,trade_date,open,high,low,close,volume,deliv_per&series=eq.EQ&symbol=in.(${inList})&order=symbol,trade_date&limit=1000`,
+      { method: "GET", headers: { Prefer: "return=representation" } },
+    );
+    for (const r of rows ?? []) {
+      if (r.open == null || r.high == null || r.low == null || r.close == null || r.volume == null) continue;
+      if (!bySymbol.has(r.symbol)) bySymbol.set(r.symbol, []);
+      bySymbol.get(r.symbol)!.push({
+        date: r.trade_date, open: Number(r.open), high: Number(r.high), low: Number(r.low), close: Number(r.close),
+        volume: Number(r.volume), deliveryPct: r.deliv_per != null ? Number(r.deliv_per) : null,
+      });
+    }
+  }
+  return bySymbol;
+}
+
 // ===== News Sentry (A2) =====
 
 /** Every NSE holding across every profile, with who to notify — News Sentry's watch list. */

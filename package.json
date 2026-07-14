@@ -21,6 +21,7 @@
     "india:backfill": "tsx src/jobs/india-archive.ts --backfill",
     "job:india-radar": "tsx src/jobs/india-radar.ts",
     "job:news-sentry": "tsx src/jobs/news-sentry.ts",
+    "india-lab": "tsx src/jobs/india-lab.ts",
     "job:backup": "tsx src/jobs/backup.ts",
     "job:watchdog": "tsx src/jobs/watchdog.ts",
     "job:card": "tsx src/jobs/card.ts",

@@ -1,0 +1,242 @@
+================================================================================
+BULLSENSE — PROJECT REPORT
+Generated 2026-07-14 from live production data (repo + Supabase)
+================================================================================
+
+ONE-LINE SUMMARY
+
+An AI investment desk built for personal money, not a product. It reads the
+market, ranks stocks by potential, sizes every position by formula, guards
+real holdings nightly, and freezes an immutable scorecard of every call it
+ever makes -- so it earns trust before it touches a rupee of real money.
+Running cost: ~$0/month on free tiers.
+
+
+--------------------------------------------------------------------------------
+01. THE MANDATE -- SIX QUESTIONS, ANSWERED FOR ANY STOCK
+--------------------------------------------------------------------------------
+
+BullSense's job is defined as a contract. For any stock -- US or Indian -- it
+must answer six questions. Four are fully built and running; two are the live
+edge of the build.
+
+  Q1. How is the market?          -> BUILT
+      Daily 0-100 regime score (VIX, breadth, trend, credit), hysteresis-gated.
+
+  Q2. Which stocks have potential? -> HEURISTIC (unvalidated)
+      A daily ranked Screener over the NSE universe, straight from the archive.
+
+  Q3. Should you enter?            -> HEURISTIC (unvalidated)
+      An explicit ENTER / WATCH / AVOID verdict -- deterministic, cited.
+
+  Q4. What lot size?               -> BUILT
+      Fixed-fractional Treasury formula. Never sized by feel.
+
+  Q5. What stop loss?              -> BUILT
+      An explicit invalidation price, set before entry, guarded nightly.
+
+  Q6. What target?                 -> BUILT
+      An explicit objective; hitting it prompts "protect the gain," never a
+      reflexive sell.
+
+
+--------------------------------------------------------------------------------
+02. THE HONESTY MACHINERY -- NOTHING IS TRUSTED UNTIL IT'S PROVEN
+--------------------------------------------------------------------------------
+
+Every call BullSense makes is frozen at creation and scored against a
+benchmark forever. Twice already, that discipline caught the project's own
+optimism before it shipped as advice.
+
+  FINDING 1 -- the Test Lab, replaying GME (the squeeze engine's flagship name)
+  The engine is mechanically correct: entries, stops, and sizing all fire
+  exactly as designed. But over 3 years on GME:
+      profit factor        0.67
+      average trade        -2.1%
+      vs. just holding SPY -4.1%
+  It currently LOSES to doing nothing.
+
+  FINDING 2 -- sniff-testing the Screener before shipping it
+  On 1,054 liquid NSE stocks, the BOTTOM momentum decile's forward return
+  (+7.7%) beat the TOP decile's (+6.6%). Pure momentum is not clean alpha on
+  this window. So the Advisor Card's verdict ships labeled an "interim
+  heuristic" -- frozen and scored, not sold as validated advice.
+
+This is the point of the system, not a flaw in it: a private desk with no
+public reputation to protect could quietly hide a losing strategy. BullSense
+is built so it can't -- every signal, dossier, and advisor card is immutable
+once written, and graded against the market it claimed to beat.
+
+
+--------------------------------------------------------------------------------
+03. HOW IT THINKS -- THE ORGANS
+--------------------------------------------------------------------------------
+
+One engine, run by scheduled jobs on GitHub Actions, reading and writing a
+single Supabase Postgres store. Every organ below is live code, not a plan.
+
+  ORGAN                        WHAT IT DOES                            STATUS
+  ----------------------------------------------------------------------------
+  Radar                        Daily regime score, 5 components,       live
+                                hysteresis-gated flips
+  Scout / Squeeze              Short-interest-driven signal family     live
+                                (US), freezing on fire
+  Treasury                     Fixed-fractional sizing, heat cap,      live
+                                drawdown throttle, concentration cap
+  Receipts                     Immutable signal freeze; entry at       live
+                                next open; scored vs SPY forever
+  Watchtower                   Nightly sweep of every real holding:    live
+                                stop / near-stop / time-stop / target
+  Behavioral guards            Catches averaging-down, over-           live
+                                concentration, overtrading, chasing
+  The Lab                      Walk-forward backtest + anti-           live
+                                overfitting gauntlet; invents genomes
+  Ledger of Beliefs            Versioned worldview; a changed mind is  live
+                                a recorded supersession
+  Advisor Card                 Six-question artifact for any ticker;   interim
+                                frozen & scored like a signal
+  Screener                     Standing daily NSE ranking from the     interim
+                                archive
+  India Archivist              Daily NSE bhavcopy, delivery %, F&O     live
+                                open interest, FII/DII flows
+  Watchdog                     Dead-man's switch -- pages operators    live
+                                if the desk goes silent >4 days
+  India Radar / News Sentry /  India-native regime, news triage on     planned
+  Calendar                     holdings, earnings/expiry flags         (A2)
+  Scalp Desk                   Intraday horizon; persistent worker;    planned
+                                strictest gauntlet in the system       (A3, gated)
+
+
+--------------------------------------------------------------------------------
+04. TWO SPEEDS, ONE DISCIPLINE -- INVEST VS. SCALP
+--------------------------------------------------------------------------------
+
+Profit is pursued on two deliberately separate horizons. They share the
+Treasury and the receipts machinery; they differ in everything else -- and a
+scalp that "becomes an investment" because it went against you is refused
+structurally.
+
+  INVEST -- the core                    SCALP -- the edge case
+  ----------------------------------    ----------------------------------
+  Horizon: days -> months               Horizon: minutes -> hours,
+                                                  flat by close
+  Status: ~80% built                    Status: 0% built -- gated on A2
+          (the current engine)                  proving itself
+  Cadence: daily / hourly cron          Cadence: real-time -- needs a
+                                                  persistent worker, not cron
+  Trust gate: PF >= 1.3 /               Trust gate: PF >= 1.3 / 100 scalps,
+              30 closed signals                    net of friction, daily-
+                                                    loss circuit breaker
+
+
+--------------------------------------------------------------------------------
+05. BUILD HISTORY -- THE PHASES, IN ORDER
+--------------------------------------------------------------------------------
+
+Each phase shipped as working, verified code -- not a plan waiting to be
+built. "Verified" means: typechecked, tested, and confirmed running in the
+real GitHub Actions / Supabase production environment, not just locally.
+
+  PHASE 0 -- DONE -- The engine
+    The autonomous US investing engine: Radar, Squeeze, Treasury, Receipts,
+    paper fund, the Lab, Ledger of Beliefs, Analyst Desk dossiers, behavioral
+    guards, an 18-command Telegram bot, and the Test Lab dashboard that runs
+    the real engine on any ticker from a browser.
+
+  PHASE A0 -- DONE -- Hardening + the India Archivist
+    - India Archivist: daily NSE bhavcopy, delivery %, F&O open interest
+      (aggregated per underlying, PCR), FII/DII flows. Verified reachable
+      from GitHub Actions before building; 121 trading days now archived,
+      114 MB.
+    - Failure paging: every scheduled job pages Telegram on failure, not
+      just a silent log row.
+    - Watchdog: an independent dead-man's switch checks the desk is
+      actually alive twice daily.
+    - Price resilience + weekly backup: dual-host price failover; the
+      irreplaceable tables snapshot to storage every Sunday.
+
+  PHASE A1 -- DONE -- The Advisor Card + Screener
+    - Advisor Card: the six-question artifact for any US or NSE ticker --
+      a transparent, cited potential score (trend, momentum, structure,
+      participation) and a deterministic verdict. The LLM narrates fixed
+      numbers; it never decides.
+    - Frozen & scored: every verdict writes to an immutable table and is
+      graded against its benchmark once the forward window elapses,
+      exactly like a trading signal.
+    - Screener: a standing daily NSE ranking straight from the archive,
+      factors scoped honestly to the data's real depth.
+    - Surfaced twice: dashboard screens (/advisor, /screener) and Telegram
+      (/card, /screener), both thin callers of the identical engine code --
+      no drift between surfaces.
+
+  PHASE A2 -- NEXT -- India Intelligence
+    The India Radar (regime for the INR book -- India VIX, NIFTY breadth,
+    FII/DII flow), News Sentry (closes the exact gap the founding Cupid
+    trade exposed: "no bad news, so why is it crashing?"), a Calendar for
+    earnings/expiry/RBI dates, real India friction & NIFTY benchmarking,
+    and India-native signal families bred and gauntlet-tested in the Lab --
+    replacing the interim heuristic with validated conviction.
+
+  PHASE A3 -- GATED -- The Scalp Desk
+    Does not exist as running code until A2 has shipped and proven itself.
+    Real-time data, a persistent worker, and the strictest paper gauntlet
+    in the system before a single real rupee is risked intraday.
+
+  PHASE A4 -- GATED -- Real money
+    A small sleeve, under the Treasury's full hard caps, only after the
+    paper fund clears PF >= 1.3 and a positive risk-adjusted return over
+    6+ months including a genuine drawdown. Never on ambition, never sooner.
+
+
+--------------------------------------------------------------------------------
+06. LIVE STATE, RIGHT NOW
+--------------------------------------------------------------------------------
+
+  METRIC                                          VALUE
+  ----------------------------------------------------------------------------
+  Scheduled workflows                              10 (nightly, hype-sweep,
+                                                     briefing, dossier, weekly,
+                                                     lab, india-archive,
+                                                     backup, watchdog,
+                                                     card-queue)
+  Job runs logged                                  46 (0 errors, last 72h)
+  Database tables                                  23
+  Engine source (TypeScript)                       4,155 lines
+  Telegram webhook (Deno edge function)             624 lines -- v13, live
+  Dashboard (Next.js)                               633 lines -- 3 screens
+                                                     (Test Lab / Advisor /
+                                                     Screener)
+  India archive -- equity + delivery                386,145 rows, 121 trading
+                                                     days, Jan 14 -> Jul 14
+  India archive -- F&O open interest                119 days captured
+  Operators connected on Telegram                   4 / 5 profiles
+  Signals fired / closed                            1 / 1 (trust clock 1/30)
+  Advisor cards frozen                              2 (scoring begins ~21
+                                                     days after creation)
+  Genomes live / Lab runs                           2 / 4
+
+
+--------------------------------------------------------------------------------
+STACK & COST
+--------------------------------------------------------------------------------
+
+  Language / runtime : TypeScript (Node, tsx)
+  Scheduler           : GitHub Actions (free tier)
+  Database            : Supabase Postgres (free tier, secret-key access)
+  LLM                 : Groq (free tier -- llama-3.3-70b-versatile)
+  Dashboard            : Next.js on Vercel
+  Interface            : Telegram bot (@bullsense_desk_bot)
+  Market data (US)     : Yahoo Finance, FINRA short interest, SEC EDGAR --
+                         all free, no key
+  Market data (India)  : NSE bhavcopy, delivery %, F&O open interest,
+                         FII/DII flows, India VIX -- all free, no key
+
+  Monthly running cost: ~$0. No paid data, no paid compute.
+
+  BullSense is India-first by intent -- the real money is INR on the NSE --
+  with the US engine kept running as a free, live proving ground for the
+  machinery while India-native signal families are bred and validated.
+
+================================================================================
+END OF REPORT
+================================================================================

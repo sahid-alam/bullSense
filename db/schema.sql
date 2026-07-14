@@ -183,6 +183,14 @@ create table if not exists advisor_cards (
 );
 -- (immutability trigger forbid_advisor_card_mutation defined in migration advisor_cards)
 
+-- Telegram /card queue — mirrors dossier_requests so /card reuses the Node advisor engine.
+create table if not exists advisor_card_requests (
+  id bigserial primary key, symbol text not null, chat_id text,
+  status text not null default 'queued', created_at timestamptz not null default now()
+);
+
+-- India Screener RPC (screener_india) defined in migration screener_india_rpc.
+
 create table if not exists book_events (
   id            bigserial primary key,
   profile_id    text not null references profiles(id),

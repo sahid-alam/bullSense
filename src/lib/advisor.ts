@@ -8,8 +8,8 @@
  * and will be scored vs the benchmark, exactly like a signal — that is how we learn whether
  * this read predicts anything. The LLM only narrates the fixed numbers; it never decides.
  */
-import { fetchDailyBars, type Bar } from "../providers/prices.js";
-import { getLatestRegime, nseDeliveryTrend, nseFnoLatest, storeAvailable } from "../providers/store.js";
+import { fetchDailyBars, latestClose, type Bar } from "../providers/prices.js";
+import { getLatestRegime, nseDeliveryTrend, nseFnoLatest, storeAvailable, unmarkedAdvisorCards, markAdvisorCard } from "../providers/store.js";
 import { sizePosition, type Regime, type RiskPrefs } from "./treasury.js";
 import { DEFAULT_PREFS } from "./benchcore.js";
 import { complete } from "../providers/llm.js";
@@ -166,4 +166,29 @@ export async function buildAdvisorCard(symbol: string, opts: { equity?: number; 
     sizingNote: sized.approved ? sized.reason : `no position — ${sized.reason}`,
     rationale, benchmarkClose,
   });
+}
+
+/**
+ * Score frozen advisor cards whose forward window has elapsed (calibration). This is what
+ * makes the freeze meaningful: after ~3 weeks we start learning whether the potential score
+ * actually predicts forward returns vs the benchmark. Runs from nightly.
+ */
+export async function markCards(minAgeDays = 21): Promise<{ marked: number }> {
+  const cards = await unmarkedAdvisorCards(minAgeDays);
+  let marked = 0;
+  const benchCache = new Map<string, number | null>();
+  for (const c of cards) {
+    try {
+      const cur = (await latestClose(c.symbol)).close;
+      const forward = (cur / c.entry - 1) * 100;
+      const benchSym = c.market === "NSE" ? "^NSEI" : "SPY";
+      if (!benchCache.has(benchSym)) { try { benchCache.set(benchSym, (await latestClose(benchSym)).close); } catch { benchCache.set(benchSym, null); } }
+      const curBench = benchCache.get(benchSym) ?? null;
+      const benchRet = curBench != null && c.benchmark_at_creation ? (curBench / c.benchmark_at_creation - 1) * 100 : null;
+      const outcome = benchRet != null ? (forward > benchRet ? "beat" : "lag") : (forward > 0 ? "up" : "down");
+      await markAdvisorCard(c.id, { forward_return_pct: Math.round(forward * 100) / 100, benchmark_return_pct: benchRet != null ? Math.round(benchRet * 100) / 100 : null, outcome });
+      marked++;
+    } catch (e) { console.error("markCards: failed for", c.symbol, e); }
+  }
+  return { marked };
 }

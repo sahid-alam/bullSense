@@ -1,0 +1,22 @@
+name: card-queue
+# Advisor Card queue (A1) — build Telegram /card requests with the real Node engine.
+on:
+  schedule:
+    - cron: "*/20 13-23 * * 1-5"   # every 20min during active hours
+  workflow_dispatch:
+
+jobs:
+  cards:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      - name: Process card requests
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+        run: npx tsx src/jobs/card-queue.ts

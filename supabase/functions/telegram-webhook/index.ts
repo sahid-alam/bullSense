@@ -48,6 +48,8 @@ const HELP = [
   "/took `SYMBOL QTY [ENTRY]` — record that you traded a signal (tracks your P&L)",
   "/pnl — your realized P&L, win rate, and open positions",
   "/dossier `SYMBOL` — deep-dive research (fundamentals, bull/bear, verdict)",
+  "/card `SYMBOL` — advisor card: market · potential · enter/avoid · size · stop · target",
+  "/screener — top NSE stocks by momentum + delivery (heuristic ranking)",
   "/fund — engine paper fund: return, Sharpe, drawdown vs SPY",
   "/lab — latest genome re-tuning result",
   "/beliefs — what BullSense currently believes (and recent mind-changes)",
@@ -341,6 +343,25 @@ async function handle(text: string, chatId: number): Promise<string> {
     lines.push(closing
       ? "Position fully closed and removed from your book."
       : `*${remaining}* ${symbol} still held${h.invalidation_price ? ` · stop ${h.invalidation_price}` : " · ⚠️ no stop set"}. The Watchtower keeps guarding it.`);
+    return lines.join("\n");
+  }
+
+  if (cmd === "/card") {
+    if (!args[0]) return "Usage: `/card SYMBOL` — the six-question advisor card (market · potential · enter/avoid · lot size · stop · target). US or NSE (append .NS).";
+    const symbol = args[0].toUpperCase();
+    await sql`insert into advisor_card_requests (symbol, chat_id) values (${symbol}, ${String(chatId)})`;
+    return `📋 Building the advisor card for *${symbol}*… it'll arrive here shortly.\n_Interim heuristic — a starting read, frozen &amp; scored over time, not validated advice._`;
+  }
+
+  if (cmd === "/screener") {
+    const rows = await sql`select symbol, score, mom_3m, mom_1m, delivery_recent, delivery_trend from screener_india(10)`;
+    if (!rows.length) return "*India Screener*\n\n_No archive data yet — the India Archivist needs to run._";
+    const lines = ["*India Screener* — top NSE by momentum + delivery + volume", "_(heuristic ranking, not validated alpha — a research start, not buy signals)_", ""];
+    for (const r of rows) {
+      const up = Number(r.delivery_trend) > 0 ? " ↑" : "";
+      lines.push(`*${r.symbol}* — score *${r.score}* · 3m ${Number(r.mom_3m) >= 0 ? "+" : ""}${r.mom_3m}% · 1m ${Number(r.mom_1m) >= 0 ? "+" : ""}${r.mom_1m}% · deliv ${r.delivery_recent}%${up}`);
+    }
+    lines.push("", "_Open a name with /card SYMBOL for the full read._");
     return lines.join("\n");
   }
 

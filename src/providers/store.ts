@@ -482,6 +482,24 @@ export async function insertAdvisorCard(c: any): Promise<number | null> {
   return rows?.[0]?.id ?? null;
 }
 
+// --- Telegram /card queue ---
+export async function queuedCardRequests(): Promise<Array<{ id: number; symbol: string; chat_id: string | null }>> {
+  return await rest("advisor_card_requests?select=id,symbol,chat_id&status=eq.queued&order=created_at&limit=20", { method: "GET", headers: { Prefer: "return=representation" } }) ?? [];
+}
+export async function completeCardRequest(id: number, status: "done" | "failed"): Promise<void> {
+  await rest(`advisor_card_requests?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ status }) });
+}
+
+// --- Advisor card scoring (calibration) ---
+/** Frozen cards old enough to score (forward window elapsed) and not yet marked. */
+export async function unmarkedAdvisorCards(minAgeDays: number): Promise<Array<{ id: number; symbol: string; market: string; entry: number; benchmark_at_creation: number | null }>> {
+  const before = new Date(Date.now() - minAgeDays * 86400_000).toISOString();
+  return await rest(`advisor_cards?select=id,symbol,market,entry,benchmark_at_creation&marked_at=is.null&created_at=lt.${before}&order=created_at&limit=50`, { method: "GET", headers: { Prefer: "return=representation" } }) ?? [];
+}
+export async function markAdvisorCard(id: number, m: { forward_return_pct: number; benchmark_return_pct: number | null; outcome: string }): Promise<void> {
+  await rest(`advisor_cards?id=eq.${id}`, { method: "PATCH", body: JSON.stringify({ ...m, marked_at: new Date().toISOString() }) });
+}
+
 /** Most recent equity trade_date already archived (for skip-if-present + freshness). */
 export async function latestNseEquityDate(): Promise<string | null> {
   const rows = await rest("nse_equity?select=trade_date&order=trade_date.desc&limit=1", { method: "GET", headers: { Prefer: "return=representation" } });

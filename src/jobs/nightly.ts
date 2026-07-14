@@ -5,6 +5,7 @@
  */
 import { fetchDailyBars } from "../providers/prices.js";
 import { pageOperators } from "../lib/alert.js";
+import { markCards } from "../lib/advisor.js";
 import { computeRadar, sma, applyHysteresis, bandRegime, type Regime } from "../lib/radar.js";
 import { storeAvailable, upsertRegimeScore, getRecentRegimes, logJobRun, routineEnabled, touchRoutine } from "../providers/store.js";
 import { runWatchtower } from "../lib/watchtower.js";
@@ -151,6 +152,9 @@ async function main() {
 
   // Watchtower sweep — every book position checked against its plan
   const watch = await runWatchtower();
+
+  // Score matured advisor cards — calibration for the A1 heuristic verdict
+  const cards = await markCards();
 
   await logJobRun("nightly", asOf, "ok", started, { ...out, si, squeeze, scorer: score, paperfund: fund, personal, watchtower: watch });
   await touchRoutine("nightly",

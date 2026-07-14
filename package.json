@@ -19,7 +19,8 @@
     "india:backfill": "tsx src/jobs/india-archive.ts --backfill",
     "job:backup": "tsx src/jobs/backup.ts",
     "job:watchdog": "tsx src/jobs/watchdog.ts",
-    "job:card": "tsx src/jobs/card.ts"
+    "job:card": "tsx src/jobs/card.ts",
+    "job:card-queue": "tsx src/jobs/card-queue.ts"
   },
   "dependencies": {
     "fflate": "^0.8.3",

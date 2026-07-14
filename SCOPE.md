@@ -1,12 +1,12 @@
 # BullSense — Project Scope: Objective → Features → Approach
 
-*v3 — 2026-07-07. Companion to FINAL.md (the definitive plan) and IDEA.md (the evolution log). This document replaces the prior scope draft, which still carried commercial-product chrome (waitlist, landing page, Clerk, Resend) left over from before the personal reframe and cost-philosophy revision. Everything below is reconciled against FINAL.md v3.*
+*v4 — 2026-07-14. Companion to FINAL.md (the definitive plan, now v5) and IDEA.md (the evolution log, now v9). v4 records the mandate broadening: BullSense is a complete investment desk — advisor (six-question contract: market read · potential · enter/avoid · lot size · stop · target), supervisor, and scorekeeper — operating on two never-blended horizons (INVEST days–months, built; SCALP intraday, gated and unbuilt), India/NSE first with the US engine as the proving ground. See FINAL.md §1, §2A, §2B; everything below remains the P0 engineering spec for the engine that exists.*
 
 ---
 
 ## 1. Objective
 
-**Build a personal, always-on AI analyst that produces structured, risk-controlled profit in trading and investing — by doing all the recurring research work ourselves manually, and by enforcing capital discipline no human sticks to consistently under pressure.**
+**Build a personal, always-on AI investment desk that produces structured, risk-controlled profit in investing and — once separately earned — intraday scalping: it analyzes the market, tells us which stocks have potential and whether to enter, computes the exact lot size, stop loss, and target for every idea, supervises our real holdings, and enforces capital discipline no human sticks to consistently under pressure.**
 
 Two failure modes this objective explicitly rejects:
 - Shipping a research tool that's interesting but never provably profitable (research-quality without profit-quality).

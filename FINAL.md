@@ -1,6 +1,6 @@
 # BullSense — The Final Project Idea
 
-*v4 — 2026-07-07. This document supersedes where it conflicts. IDEA.md is the evolution log (v1→v8); SCOPE.md is the P0 engineering spec (stack section superseded by §4 below). v2 added §3A: the goal restated as structured profit, plus the Treasury (capital/risk governance). v3 revised the cost philosophy to best-value-per-dollar. v4 makes the goal hierarchy explicit (profit is terminal; everything else is instrumental), pulls the Lab's continuous-learning loop forward so improvement compounds from month 3 instead of month 5, and adds an earned sizing escalation (§3A Rule 6) so a genuinely excellent, proven opportunity gets a genuinely larger position — mechanically, not emotionally.*
+*v5 — 2026-07-14. This document supersedes where it conflicts. IDEA.md is the evolution log (v1→v9); SCOPE.md is the P0 engineering spec (stack section superseded by §4 below). v2 added §3A: structured profit + the Treasury. v3 revised the cost philosophy to best-value-per-dollar. v4 made the goal hierarchy explicit and pulled the Lab forward. **v5 is the mandate broadening: BullSense is not a one-setup signal engine — it is a complete investment desk. Two horizons (INVEST: swing/position over days–months; SCALP: intraday), one home market (India/NSE first, US as the proving ground), and one advisor contract: for any stock it must answer — is the market safe, does this stock have potential, should you enter, at what size, with what stop, toward what target. §2A defines the horizons; §2B faces the India data reality honestly.***
 
 ---
 
@@ -15,16 +15,27 @@ Two things follow directly from taking that seriously, both new in this revision
 
 ## 1. What BullSense is
 
-**BullSense is our personal, always-on AI analyst.** Not a product, not a platform — a single accountable entity that works for us around the clock and hands us only the last step of investing: the decision.
+**BullSense is our personal, always-on AI investment desk — advisor, supervisor, and scorekeeper in one accountable entity.** Not a product, not a platform, and not a single-trick signal bot: it must carry the complete coverage of an expert stock-market investor, and hand us only the last step: the decision.
+
+**The advisor contract — six questions it must answer for any stock, every time:**
+1. **How is the market?** — the daily Radar regime read (safe / neutral / defensive)
+2. **Which stocks have good potential?** — ranked candidates with cited evidence, per horizon
+3. **Should you enter this stock?** — an explicit verdict with the thesis and what would invalidate it
+4. **What should your lot size be?** — an exact quantity computed by the Treasury formula, never a feeling
+5. **What should your stop loss be?** — an explicit invalidation price, set before entry
+6. **What should your target be?** — an explicit objective, with the protect-the-gain discipline when it's hit
+
+*Status honesty: 1, 4, 5, 6 are built and live today (Radar, Treasury, invalidation, targets). 2 and 3 exist for the US squeeze family (signals + dossiers) and must be broadened — that is the v5 work.*
 
 It is:
 - **Autonomous** — runs continuously on scheduled routines; we touch nothing but the pause switch
 - **Accountable** — every call it ever makes is frozen at creation and scored against the market forever; it runs a paper portfolio under its own published rules
 - **Calibrated** — its conviction scores are probabilities we can audit ("when it says 70, is it right ~70% of the time?")
 - **Coherent** — it maintains a versioned Ledger of Beliefs; you can read what it believes and when it changed its mind
-- **Personal** — it watches *our real holdings*, sizes in *our real dollars*, and measures whether it makes *us* better (User Alpha)
+- **Personal** — it watches *our real holdings*, sizes in *our real rupees*, and measures whether it makes *us* better (User Alpha)
 - **Interrogable** — challenge any call; it defends or concedes from cited evidence
-- **Cost-disciplined** — engineered for best features per dollar, not lowest possible dollar: ~$100–180/month, spent deliberately (§4)
+- **Two-horizon** — the same discipline applied at two speeds: patient investing and (once earned) intraday scalping (§2A)
+- **Cost-disciplined** — engineered for best features per dollar, currently ~$0/month on free tiers, spent deliberately when an upgrade buys real quality (§4)
 
 ## 2. The analyst's anatomy
 
@@ -38,6 +49,33 @@ It is:
 | Learning | **The Lab** | continuous improvement in two speeds — **v0** (from P1): parameter mutation + rolling walk-forward re-validation of the genomes already live, so existing strategies keep getting re-tuned against fresh data every month rather than sitting static; **v1→v2** (from P2): full evolution — LLM-generated new genome hypotheses, the anti-overfitting gauntlet (walk-forward, cost realism, multiple-testing haircut, sensitivity), live shadow incubation, autonomous promote/retire, public graveyard. Fitness is judged at the **portfolio** level (does this genome improve the fund's net risk-adjusted profit), not just per-genome stats — a genome that's individually fine but redundant with a better one is pruned |
 | Reputation | **Receipts** | immutable: entry = next open, suppressed signals scored too, per-family & regime-split stats, Brier calibration table, paper-fund equity curve |
 | **Capital discipline** | **The Treasury** | the missing governor: converts every idea into a *sized, capped, regime-scaled* position — see §3A |
+| **The answer** | **Advisor Card** *(v5, new)* | the six-question contract (§1) rendered as one artifact per stock: market read · potential verdict · enter/avoid · exact lot size · stop · target — every field traceable to the organ that produced it |
+| **Speed** | **Scalp Desk** *(v5, new — build-gated)* | the intraday arm: same Treasury math, same receipts, compressed to minutes–hours; paper-only until it clears its own, stricter gauntlet (§2A) |
+
+## 2A. The two horizons — one discipline, two speeds
+
+Profit is pursued on two deliberately separate horizons. They share the Treasury, the receipts machinery, and the honesty bar — they differ in everything else, and they are **never blended in one book**.
+
+| | **INVEST** (the core) | **SCALP** (the edge case) |
+|---|---|---|
+| Holding period | days → months | minutes → hours, flat by close |
+| Question | "is this business/setup going to do well?" | "is this price about to move *right now*?" |
+| Data cadence | daily bars, filings, sentiment (built ✓) | live intraday ticks/1-min bars (**not built**) |
+| Engine loop | nightly + hourly cron (built ✓) | a persistent real-time process — **GitHub Actions cannot do this**; needs a small always-on worker when the phase begins |
+| Friction sensitivity | moderate — rule 5 covers it | **brutal** — costs/slippage/STT eat most intraday edges; net-of-friction expectancy is the whole game |
+| Behavioral risk | FOMO, no stop, oversizing (guards built ✓) | **the highest-failure retail activity that exists** — overtrading and revenge are the default outcome, not the exception |
+| Trust gate | PF ≥ 1.3 over 30 closed signals | **stricter**: PF ≥ 1.3 over ≥100 paper scalps *net of realistic intraday friction*, plus a max-daily-loss circuit breaker and a hard trades-per-day cap, before a single real rupee |
+
+**The build honesty:** the INVEST horizon is 80% built — it *is* the current engine. The SCALP horizon is 0% built and expensive in exactly the ways this project has avoided so far (real-time data, always-on compute, tighter execution). It is therefore **sequenced after the India investment advisor proves itself** (§6), and it inherits every guardrail with tighter screws — the same system that warned us off the Cupid trade must be the one holding the leash intraday, because scalping without that leash is how retail accounts die.
+
+## 2B. The home market — India first, US as the proving ground
+
+The real money is INR on the NSE (the Cupid case is the founding story). The engine today, however, is US-proven: free FINRA short interest, EDGAR filings, and SPY benchmarks — none of which exist for India in the same form. v5 faces this squarely instead of pretending a US engine covers an Indian goal:
+
+- **What already works for India:** NSE daily prices via Yahoo (`.NS`, proven in the bench), the Treasury (currency-agnostic math), the Watchtower, behavioral guards, targets/stops, the book — the entire *supervision* layer is market-neutral and live today.
+- **What does not transfer:** the Squeeze family (FINRA is US-only — no NSE short-interest feed), EDGAR fundamentals, and the SPY benchmark (an INR book must be benchmarked against **NIFTY**, not SPY).
+- **The India build (the real v5 work):** (1) wire India-native data — NSE delivery %, F&O open-interest buildup, bulk/block deals, corporate filings; (2) breed **India-native signal families** in the Lab — delivery-surge, OI-buildup, momentum/52-week-breakout — instead of transplanting a squeeze strategy the data can't feed; (3) switch the personal-book benchmark to NIFTY.
+- **Meanwhile the US engine keeps running** — it is free, live, and accruing the receipts that prove the *machinery* works while the India families are bred. US = the lab bench; India = the patient.
 
 ## 3A. The Treasury — capital and risk governance (the profit layer)
 
@@ -98,6 +136,8 @@ A structured-profit goal realized in a taxable account faces a materially differ
 6. **No position is ever sized by feel** — every dollar amount, paper or real, is computed by the Treasury's formula (§3A rule 1 or, once earned, rule 6), full stop.
 7. **Escalated sizing is earned, never assumed** — a genome only gets access to §3A rule 6's larger sizing tier after its own live calibration and net profit factor prove it deserves the upgrade. Every genome starts, and stays, on flat sizing until it earns otherwise.
 8. **The system must never stop learning** — the Lab's continuous-tuning loop starts in P1 (§7), not P2, and runs for as long as the project runs. A static rule set is treated as a bug, not a finished state.
+9. **The horizons never blend** *(v5)* — invest positions and scalp positions live in separate books with separate receipts, separate trust clocks, and separate P&L. A scalp that "becomes an investment" because it went against us is the oldest self-deception in trading; the system refuses it structurally: a scalp not closed by the session's end is force-flagged as a broken rule, logged, and scored.
+10. **Scalping is earned twice** *(v5)* — first the paper gauntlet (§2A: PF ≥ 1.3 over ≥100 paper scalps net of intraday friction), then real money only in a capped sleeve with a hard max-daily-loss circuit breaker and a trades-per-day cap. The Scalp Desk does not exist as running code until the India investment advisor has shipped and proven itself — the patient horizon funds the trust the fast horizon spends.
 
 ## 4. The cost-optimized architecture (~$100–180/month, best-value not cheapest-possible)
 
@@ -144,8 +184,14 @@ A structured-profit goal realized in a taxable account faces a materially differ
 3. **Weeks 6–8 — The hunter:** Hype Surge + Squeeze genomes (paid sentiment vendor selected and integrated), signal cards with theses, **receipts spine + Engine Console** — receipts computed net-of-friction from day one (§3A rule 5). The self-honesty clock (30 closed signals) starts. **Treasury v0** ships alongside: fixed-fractional sizing + portfolio heat cap applied to the paper fund from its very first simulated trade — sizing discipline is never bolted on later.
 4. **Months 3–4 — The scholar (+ the first turn of the crank):** **Analyst Desk v1** (FMP-fed specialists — filings, fundamentals, transcripts — debate, verdict, thesis triggers wired into Watchtower), dossier receipts, one-tap TRACK + personal receipts, calibration table accruing. **Lab v0 ships in the same window, not later:** monthly parameter mutation + walk-forward re-validation of the two live genomes against the freshest data — the system is now demonstrably improving itself three months in, instead of five.
 5. **Months 5–8 — The mind:** **Lab v1→v2** (full LLM-hypothesis generation, new-genome invention, the anti-overfitting gauntlet, live incubation, autonomous promote/retire, public graveyard — fitness judged at the portfolio level), **Ledger of Beliefs**, full paper fund with public-to-us equity curve **and CAGR/drawdown/Sharpe reporting** (§3A), chat interrogation via Telegram, **override receipts** live. **Conviction escalation (§3A Rule 6) goes live the moment any genome earns it** — ≥50 closed signals with a validated calibration curve and net PF ≥ 1.3 — rather than waiting for a fixed calendar date.
-6. **Month 9+ — The hands (only if earned):** small real-money sleeve via Alpaca under Guardrail 3's full Treasury caps. And the quiet optionality: a healthy year of receipts + calibration + risk-adjusted fund performance means the commercial plan (IDEA.md v7) reactivates any time we choose, with an unfakeable founding story.
+6. **Month 9+ — The hands (only if earned):** small real-money sleeve under Guardrail 3's full Treasury caps. And the quiet optionality: a healthy year of receipts + calibration + risk-adjusted fund performance means the commercial plan (IDEA.md v7) reactivates any time we choose, with an unfakeable founding story.
+
+**The v5 continuation — the desk phases (sequenced after the engine above, which is built):**
+
+7. **A1 — The Advisor Card (weeks, not months):** compose the six-question contract (§1) into one artifact per stock, surfaced in the dashboard Test Lab and Telegram. Nearly all fields already exist (Radar, Treasury sizing, stop, target); the new work is the *potential verdict* — extending the dossier pipeline from "US EDGAR deep-dive" to a horizon-aware enter/avoid verdict that works for any priceable ticker.
+8. **A2 — India data + India-native families:** wire NSE delivery %, F&O open interest, and bulk/block-deal data; breed delivery-surge / OI-buildup / momentum-breakout genomes through the Lab's full anti-overfitting gauntlet on NSE history; switch personal-book benchmarks to NIFTY. Exit bar: an India genome clears the same PF ≥ 1.3 / 30-closed-signals gauntlet the US families face.
+9. **A3 — The Scalp Desk (gated on A2 shipping and proving):** a persistent intraday worker (not GitHub Actions), 1-min NSE data, scalp genomes bred in the Lab, paper-only under Guardrail 10's stricter gauntlet — ≥100 paper scalps net of intraday friction, max-daily-loss breaker, trades-per-day cap. Real rupees only after that, in a capped sleeve.
 
 ## 7. The one-sentence version
 
-**BullSense: a self-improving AI analyst we own outright, built for one goal — structured profit. It watches the market and our money around the clock, reads everything on real institutional-grade data, argues with itself, keeps getting measurably better the longer it runs, sizes every position by formula instead of feeling — bigger on its best, hardest-earned ideas, never on a whim — and keeps an immutable scorecard of every call, including our own overrides. For a small fraction of what a single junior analyst costs, it leaves us exactly one job: the decision.**
+**BullSense: a self-improving AI investment desk we own outright, built for one goal — structured profit, in India first. It reads the market every day, tells us which stocks have real potential, whether to enter, at exactly what size, stop, and target — patient positions today, disciplined intraday scalps once that speed is earned — keeps getting measurably better the longer it runs, sizes every rupee by formula instead of feeling, and keeps an immutable scorecard of every call, including our own overrides. It carries the full coverage of an expert investor and leaves us exactly one job: the decision.**

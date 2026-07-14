@@ -441,6 +441,23 @@ Pricing, tiers, growth model, personas, waitlist/landing/OG share cards, delayed
 ### 9.6 The quiet optionality
 Personal use *is* a preseason. If after a year the receipts, calibration curve, and paper fund are healthy, the entire v7 commercial plan sits on the shelf ready — with a founding story no competitor can fake: "we built it for ourselves and here is every call it ever made." If they're not healthy, we still own: our hours back (Radar/Watchtower/Desk), a market education (watching calibrated beliefs evolve), and an unbackfillable point-in-time dataset. **In the personal frame, the project cannot really fail — it can only teach.**
 
+## Part 8B — THE MANDATE BROADENING (v9): from signal engine to complete investment desk
+
+*2026-07-14. Operator direction, verbatim intent: BullSense's target is not one aggressive setup — it is an investment platform that analyzes the market and guides stock investment AND scalping. It must answer: which stocks have good potential · how the market is · whether to invest in this stock · what the lot size should be · what the stop loss should be · what the target should be. "BullSense has to have the complete coverage of an expert stock market investor." FINAL.md v5 is the supersession; this entry is the log.*
+
+### 10.1 What v9 changes
+1. **Identity:** "aggressive regime-aware signal engine" → **a complete investment desk**: advisor (the six-question contract), supervisor (Watchtower + behavioral guards over our real book), and scorekeeper (receipts) — one entity, full coverage.
+2. **Two horizons, never blended:** INVEST (days–months; the current engine, ~80% built) and SCALP (intraday; 0% built, gated hardest). Separate books, separate receipts, separate trust clocks — a scalp that "becomes an investment" is structurally refused.
+3. **Home market:** India/NSE first (the money is INR; Cupid is the founding story); the US engine continues as the free, live proving ground for the machinery.
+
+### 10.2 What v9 does NOT change
+The Treasury, the receipts immutability, the calibration discipline, the Lab, the guardrails, the trust gates — all survive intact and now govern *both* horizons. The system that exists is the INVEST horizon's engine; nothing is thrown away. A clarification for the record: the engine never shorted stocks — the squeeze family *buys* heavily-shorted names betting on the rebound. v9 broadens the hunting ground; it does not reverse a direction.
+
+### 10.3 The honest gaps v9 opens (the new work, in order)
+1. **Advisor Card (A1):** compose the six answers into one artifact per stock — most fields already exist; the new build is a horizon-aware *potential verdict* for any priceable ticker.
+2. **India data + India-native families (A2):** no FINRA equivalent exists for NSE — so no transplanted squeeze strategy. Wire delivery %, F&O open interest, bulk/block deals; breed India-native genomes (delivery-surge, OI-buildup, momentum-breakout) through the same anti-overfitting gauntlet; benchmark the personal book against NIFTY, not SPY.
+3. **Scalp Desk (A3, gated on A2):** real-time intraday data + a persistent worker (GitHub Actions cannot do this) + scalp genomes — paper-only until PF ≥ 1.3 over ≥100 scalps net of intraday friction, with a max-daily-loss breaker and trades-per-day cap. Scalping is the highest-failure retail activity that exists; it gets the tightest leash in the whole system or it doesn't get built.
+
 ## Part 9 — Sources
 - Journals: https://www.tradezella.com/vs/tradervue · https://www.stockbrokers.com/review/tools/tradezella · https://traderssecondbrain.com/guides/tradezella-vs-tradervue
 - Automation/copy: https://www.composer.trade/ · https://opentools.ai/tools/composer-trade · https://surmount.ai/blogs/composer-vs-surmount-which-automated-trading-platform-is-best-for-you

@@ -1,0 +1,109 @@
+# BullSense — Build Roadmap
+
+*The execution plan. [FINAL.md](FINAL.md) holds the **why** (v6); this holds the **what, in what order**. Each task is a buildable unit with an exit bar. Check items off as they ship.*
+
+**Legend:** ✅ done · 🔨 in progress · ⬜ not started · 🔒 gated (can't start until a dependency proves out)
+
+---
+
+## Phase 0 — The engine (✅ SHIPPED)
+
+The autonomous US engine, live on GitHub Actions + Supabase at ~$0/mo, all jobs green.
+
+- ✅ Radar (market regime, 5 components, hysteresis)
+- ✅ Scout / Squeeze signal family + immutable Receipts scored vs SPY
+- ✅ Treasury (fixed-fractional sizing, heat cap, drawdown throttle, concentration cap)
+- ✅ Paper fund + risk metrics (Sharpe/Sortino/CAGR)
+- ✅ Watchtower (stops, time-stops, **profit targets**), behavioral guards
+- ✅ The Lab (walk-forward backtest + anti-overfitting gauntlet + genome invention)
+- ✅ Ledger of Beliefs, Analyst Desk dossiers, chat interrogation
+- ✅ Telegram bot (19 commands incl. `/took` `/sold` `/stop` `/target`)
+- ✅ **Test Lab dashboard** (Next.js, run the engine on any ticker)
+- ✅ Pure `runBench()` core shared by CLI + web
+
+**Honest status:** mechanically correct, but the squeeze family is *not yet a proven edge* (bench: PF 0.67 on GME). The trust clock is at 1/30. That's the gap the phases below close.
+
+---
+
+## Phase A0 — Hardening + the Archivist (⬜ DO FIRST)
+
+*Goal: make the desk unable to die silently, and start hoarding the unbackfillable India data before any India strategy needs it. Small, boring, highest time-sensitivity in the whole plan.*
+
+**A0.1 — Operational hardening**
+- ⬜ Dead-man's switch — nightly pings an external monitor (healthchecks.io free tier); it alerts Telegram if the engine goes silent ~36h. *External on purpose — survives GitHub disabling our workflows.*
+- ⬜ Failure paging — every job's catch block pages operators on Telegram the same hour (today it only writes a `job_runs` row).
+- ⬜ Price-provider fallback — abstract `fetchDailyBars` behind one interface; add Stooq (US) / bhavcopy (`.NS`) fallback when Yahoo fails.
+- ⬜ Weekly DB backup — scheduled `pg_dump` → Supabase Storage. The receipts are irreplaceable.
+- ⬜ Key rotation (operator action — the shared keys from setup).
+
+**A0.2 — The India Archivist** *(the time-sensitive one)*
+- ⬜ `src/providers/nse.ts` — fetch daily NSE bhavcopy (incl. **delivery %**), F&O bhavcopy (**open interest**), **FII/DII** flows, **India VIX**.
+- ⬜ New tables: `nse_bars`, `nse_delivery`, `nse_fno_oi`, `fii_dii_flows`, `india_vix`.
+- ⬜ `src/jobs/india-archive.ts` + a GitHub Action (~15:30 UTC, after NSE publishes ~8pm IST).
+
+**Exit bar:** engine can't fail silently (a killed nightly pages within 36h), and the India archive is accreting daily. **Nothing downstream depends on strategy quality — pure infrastructure.**
+
+---
+
+## Phase A1 — The Advisor Card + Screener (⬜)
+
+*Goal: deliver the "expert advisor" feel — answer the six questions for any stock, and stand up a daily "what has potential" list. Mostly composing pieces that already exist.*
+
+- ⬜ **Advisor Card** — one artifact per stock: market read · potential verdict · enter/avoid · lot size · stop · target. Reuses Radar + Treasury + invalidation + target (built); the new piece is a **horizon-aware potential verdict** for any priceable ticker.
+- ⬜ Broaden the dossier/verdict path beyond US-EDGAR so it works on price + available data alone (needed for NSE names).
+- ⬜ **Screener** — a standing daily *ranked* potential list over the universe (momentum, delivery trend, volume quality, 52-week positioning), each rank citing its components. Answers "which stocks have potential" **every day**, not only when a signal fires.
+- ⬜ Surface both in the dashboard (new screen) + Telegram (`/card SYMBOL`, `/screener`).
+
+**Exit bar:** ask BullSense about any stock and get all six answers in one card; open the dashboard and see today's ranked shortlist.
+
+---
+
+## Phase A2 — India Intelligence (⬜ — needs A0.2 archive maturing)
+
+*Goal: a real India-native desk, not a US engine pointed at `.NS` tickers. Depends on the archive having accumulated history.*
+
+- ⬜ **India Radar** — regime for the INR book: India VIX (level + trend), NIFTY trend & breadth, FII/DII 5-day net flow, INR/USD + Brent stress → same 0–100 score + hysteresis.
+- ⬜ **India friction model** — net expectancy with real numbers (STT, brokerage, STCG 20% / LTCG 12.5%); personal books benchmark vs **NIFTY**, not SPY.
+- ⬜ **News Sentry** — RSS (Moneycontrol/ET) + NSE corporate announcements on book names → LLM triage → Watchtower events. *Closes the Cupid gap.*
+- ⬜ **Calendar** — earnings, F&O expiry, ex-dividend, RBI/budget dates → Watchtower flags.
+- ⬜ **India-native signal families** — delivery-surge, OI-buildup, momentum-breakout, FII-flow-tailwind — bred in the Lab on the archive.
+- ⬜ **Trade post-mortems** — every closed trade auto-examined (thesis right/lucky, exit followed, guard fired).
+
+**Exit bar:** at least one India family clears the gauntlet (PF ≥ 1.3 net of India friction over 30 closed signals) and the INR book runs on its own Radar, benchmarked to NIFTY.
+
+---
+
+## Phase A3 — The Scalp Desk (🔒 gated on A2 shipping AND proving)
+
+*Goal: the intraday horizon — the highest-failure activity in trading, so the tightest leash in the system. Does not exist as running code until A2 has proven the India investment desk works.*
+
+- 🔒 Persistent intraday worker (NOT GitHub Actions — needs an always-on process) + 1-min NSE data feed.
+- 🔒 Scalp genomes bred in the Lab; a **separate** scalp book/receipts/trust-clock (never blended with invest — Guardrail 9).
+- 🔒 Circuit breakers: max-daily-loss halt, hard trades-per-day cap, force-flat by session close.
+- 🔒 Paper-only gauntlet: PF ≥ 1.3 over ≥100 paper scalps **net of intraday friction** before a single real rupee.
+
+**Exit bar:** the scalp paper fund clears its stricter gauntlet across a real sample.
+
+---
+
+## Phase A4 — Real money (🔒 gated on the risk-adjusted proof bar)
+
+- 🔒 A small real-money sleeve under the Treasury's full hard caps — only after the paper fund clears PF ≥ 1.3 + positive risk-adjusted returns over 6+ months including a real drawdown (Guardrail 3). Never on ambition, never sooner.
+
+---
+
+## Sequencing at a glance
+
+```
+Phase 0 ✅ ──> A0 (hardening + archivist)  ← START HERE
+                 │
+                 ├─> A1 (advisor card + screener)   ── can run in parallel with the archive maturing
+                 │
+                 └─> A2 (india intelligence)         ── needs A0.2 archive to have history
+                        │
+                        └─> A3 (scalp desk) 🔒 ──> A4 (real money) 🔒
+```
+
+**Why A0 is first, not A1:** A1 is the more visible win, but the **archive clock is ticking daily** — point-in-time NSE data unrecorded today is gone forever, and A2's whole edge is bred on it. A0 is cheap and unblocks everything Indian. A1 can begin the moment A0.2's Archivist is running.
+
+**Recommended first build:** **A0.2 (the Archivist) + A0.1 (hardening)** together — one focused phase, no dependency on any strategy being good.

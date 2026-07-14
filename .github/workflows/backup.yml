@@ -1,0 +1,21 @@
+name: backup
+# Weekly logical backup (A0.1) of the irreplaceable tables → Supabase Storage.
+on:
+  schedule:
+    - cron: "0 6 * * 0"   # Sunday 06:00 UTC
+  workflow_dispatch:
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      - name: Snapshot core tables
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: npx tsx src/jobs/backup.ts

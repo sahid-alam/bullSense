@@ -46,4 +46,5 @@ async function main() {
   console.log(`dossier: processed ${reqs.length}, built ${built}`);
 }
 
-main().catch((e) => { console.error("dossier job failed:", e); process.exit(1); });
+import { failJob } from "../lib/alert.js";
+main().catch((e) => failJob("dossier", e));

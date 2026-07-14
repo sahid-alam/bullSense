@@ -31,9 +31,9 @@ The autonomous US engine, live on GitHub Actions + Supabase at ~$0/mo, all jobs 
 
 **A0.1 — Operational hardening**
 - ⬜ Dead-man's switch — nightly pings an external monitor (healthchecks.io free tier); it alerts Telegram if the engine goes silent ~36h. *External on purpose — survives GitHub disabling our workflows.* **(needs a healthchecks.io account — operator step)**
-- 🔨 Failure paging — ✅ done for the Archivist (0-row capture pages Telegram); ⬜ still to extend to nightly/hype-sweep/lab catch blocks.
-- ⬜ Price-provider fallback — abstract `fetchDailyBars` behind one interface; add Stooq (US) / bhavcopy (`.NS`) fallback when Yahoo fails.
-- ⬜ Weekly DB backup — scheduled `pg_dump` → Supabase Storage. The receipts are irreplaceable.
+- ✅ Failure paging — shared `pageOperators`/`failJob` (`src/lib/alert.ts`) wired into nightly, hype-sweep, briefing, dossier, weekly, lab, backup + the Archivist. A failed job now pages Telegram the same run.
+- ✅ Price resilience — `fetchDailyBars` now tries both Yahoo hosts (query1→query2) before failing. *(deeper Stooq/bhavcopy second-provider fallback = fast-follow if Yahoo ever fully fails.)*
+- ✅ Weekly backup — `src/jobs/backup.ts` + Sunday cron: logical snapshot of the irreplaceable tables (receipts, book, beliefs, fund history) → Supabase Storage `backups/`. *(large point-in-time archives get the R2 offload, per plan.)*
 - ⬜ Key rotation (operator action — the shared keys from setup).
 
 **A0.2 — The India Archivist** *(the time-sensitive one)* — ✅ **SHIPPED & verified in CI**

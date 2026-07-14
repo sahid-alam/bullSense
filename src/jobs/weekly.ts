@@ -56,7 +56,5 @@ async function main() {
   console.log("weekly:", JSON.stringify({ ...s, briefed: sent }));
 }
 
-main().catch((err) => {
-  console.error("weekly failed:", err);
-  process.exit(1);
-});
+import { failJob } from "../lib/alert.js";
+main().catch((e) => failJob("weekly", e));

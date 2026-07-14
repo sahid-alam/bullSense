@@ -148,4 +148,5 @@ async function main() {
   console.log("lab:", verdict, "-", detail);
 }
 
-main().catch((e) => { console.error("lab job failed:", e); process.exit(1); });
+import { failJob } from "../lib/alert.js";
+main().catch((e) => failJob("lab", e));

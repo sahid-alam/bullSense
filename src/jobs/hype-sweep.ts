@@ -83,7 +83,5 @@ async function main() {
   console.log(`hype-sweep: archived ${snaps.length} rows`, bySource, "| scout:", JSON.stringify(scout));
 }
 
-main().catch((err) => {
-  console.error("hype-sweep failed:", err);
-  process.exit(1);
-});
+import { failJob } from "../lib/alert.js";
+main().catch((e) => failJob("hype-sweep", e));

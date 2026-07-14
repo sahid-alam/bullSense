@@ -9,8 +9,8 @@
  * A zero-equity capture pages the operators on Telegram — the archive must not die silently.
  */
 import { fetchEquityDelivery, fetchFiiDii } from "../providers/nse.js";
-import { storeAvailable, upsertNseEquity, upsertFiiDii, latestNseEquityDate, insertIndiaArchiveRun, operatorChatIds } from "../providers/store.js";
-import { sendTelegram } from "../providers/telegram.js";
+import { storeAvailable, upsertNseEquity, upsertFiiDii, latestNseEquityDate, insertIndiaArchiveRun } from "../providers/store.js";
+import { pageOperators } from "../lib/alert.js";
 
 try { process.loadEnvFile(".env"); } catch { /* CI injects env directly */ }
 
@@ -23,10 +23,6 @@ async function captureDay(d: Date): Promise<{ date: string | null; equityRows: n
   if (!eq) return { date: null, equityRows: 0 };
   await upsertNseEquity(eq.rows);
   return { date: eq.contentDate, equityRows: eq.rows.length };
-}
-
-async function page(msg: string) {
-  try { for (const chat of await operatorChatIds()) await sendTelegram(chat, msg); } catch (e) { console.error("paging failed:", e); }
 }
 
 async function main() {
@@ -63,7 +59,7 @@ async function main() {
 
   if (day.equityRows === 0) {
     // The source most likely to die silently — page immediately.
-    await page("🚨 *India Archivist* captured *0 equity rows* today. NSE fetch may be blocked or down — the point-in-time archive has a gap. Check the india-archive job.");
+    await pageOperators("🚨 *India Archivist* captured *0 equity rows* today. NSE fetch may be blocked or down — the point-in-time archive has a gap. Check the india-archive job.");
     console.error("India Archivist: NO equity data captured.");
     process.exit(1);
   }
@@ -72,6 +68,6 @@ async function main() {
 
 main().catch(async (e) => {
   console.error("india-archive failed:", e);
-  await page(`🚨 *India Archivist* crashed: ${String(e).slice(0, 160)}`);
+  await pageOperators(`🚨 *India Archivist* crashed: ${String(e).slice(0, 160)}`);
   process.exit(1);
 });

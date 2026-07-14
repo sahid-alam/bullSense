@@ -4,6 +4,7 @@
  * via Supabase REST → log the run. Dry-runs cleanly if the store isn't configured.
  */
 import { fetchDailyBars } from "../providers/prices.js";
+import { pageOperators } from "../lib/alert.js";
 import { computeRadar, sma, applyHysteresis, bandRegime, type Regime } from "../lib/radar.js";
 import { storeAvailable, upsertRegimeScore, getRecentRegimes, logJobRun, routineEnabled, touchRoutine } from "../providers/store.js";
 import { runWatchtower } from "../lib/watchtower.js";
@@ -169,5 +170,6 @@ main().catch(async (err) => {
       await logJobRun("nightly", new Date().toISOString().slice(0, 10), "error", Date.now(), { error: String(err) });
     }
   } catch {}
+  await pageOperators(`🚨 *nightly* failed: ${String(err).slice(0, 180)}`);
   process.exit(1);
 });

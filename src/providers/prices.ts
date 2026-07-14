@@ -14,30 +14,36 @@ export interface Bar {
 }
 
 const UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36";
+// Yahoo's chart API is unofficial and a single point of failure — but it mirrors across
+// query1/query2 hosts, so trying both turns a transient host failure into a non-event.
+const YAHOO_HOSTS = ["query1.finance.yahoo.com", "query2.finance.yahoo.com"];
 
 export async function fetchDailyBars(symbol: string, range: "1y" | "3y" | "5y" | "10y" = "3y"): Promise<Bar[]> {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`;
-  const res = await fetch(url, { headers: { "User-Agent": UA } });
-  if (!res.ok) throw new Error(`yahoo ${symbol}: HTTP ${res.status}`);
-  const json = (await res.json()) as any;
-  const result = json?.chart?.result?.[0];
-  if (!result) throw new Error(`yahoo ${symbol}: empty result`);
-  const ts: number[] = result.timestamp ?? [];
-  const q = result.indicators?.quote?.[0] ?? {};
-  const bars: Bar[] = [];
-  for (let i = 0; i < ts.length; i++) {
-    const close = q.close?.[i];
-    if (close == null) continue;
-    bars.push({
-      date: new Date(ts[i] * 1000).toISOString().slice(0, 10),
-      open: q.open?.[i] ?? close,
-      high: q.high?.[i] ?? close,
-      low: q.low?.[i] ?? close,
-      close,
-      volume: q.volume?.[i] ?? 0,
-    });
+  let lastErr: unknown;
+  for (const host of YAHOO_HOSTS) {
+    try {
+      const url = `https://${host}/v8/finance/chart/${encodeURIComponent(symbol)}?range=${range}&interval=1d`;
+      const res = await fetch(url, { headers: { "User-Agent": UA } });
+      if (!res.ok) throw new Error(`yahoo ${symbol}: HTTP ${res.status}`);
+      const json = (await res.json()) as any;
+      const result = json?.chart?.result?.[0];
+      if (!result) throw new Error(`yahoo ${symbol}: empty result`);
+      const ts: number[] = result.timestamp ?? [];
+      const q = result.indicators?.quote?.[0] ?? {};
+      const bars: Bar[] = [];
+      for (let i = 0; i < ts.length; i++) {
+        const close = q.close?.[i];
+        if (close == null) continue;
+        bars.push({
+          date: new Date(ts[i] * 1000).toISOString().slice(0, 10),
+          open: q.open?.[i] ?? close, high: q.high?.[i] ?? close, low: q.low?.[i] ?? close,
+          close, volume: q.volume?.[i] ?? 0,
+        });
+      }
+      return bars;
+    } catch (e) { lastErr = e; /* try the next host */ }
   }
-  return bars;
+  throw new Error(`price fetch failed for ${symbol} on all hosts: ${lastErr}`);
 }
 
 /** Latest close for a symbol (Book marks, Watchtower checks). */

@@ -16,7 +16,8 @@
     "job:dossier": "tsx src/jobs/dossier.ts",
     "job:lab": "tsx src/jobs/lab.ts",
     "job:india-archive": "tsx src/jobs/india-archive.ts",
-    "india:backfill": "tsx src/jobs/india-archive.ts --backfill"
+    "india:backfill": "tsx src/jobs/india-archive.ts --backfill",
+    "job:backup": "tsx src/jobs/backup.ts"
   },
   "dependencies": {
     "pg": "^8.13.0",

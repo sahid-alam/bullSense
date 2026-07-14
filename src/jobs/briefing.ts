@@ -82,7 +82,5 @@ async function main() {
   console.log(`briefing: sent to ${sent} profile(s)`);
 }
 
-main().catch((err) => {
-  console.error("briefing failed:", err);
-  process.exit(1);
-});
+import { failJob } from "../lib/alert.js";
+main().catch((e) => failJob("briefing", e));

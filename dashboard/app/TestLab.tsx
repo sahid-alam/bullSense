@@ -7,6 +7,26 @@ import type { BenchResult } from "../../src/lib/benchcore.js";
 const pct = (x: number) => `${x >= 0 ? "+" : ""}${x.toFixed(1)}%`;
 const sign = (x: number) => (x > 0 ? "pos" : x < 0 ? "neg" : "flat");
 
+// Popular US names to test — meme / high-short-interest tickers that actually exercise the
+// squeeze engine (all US; the engine can't evaluate NSE names). Pick fills the ticker box.
+const POPULAR: Array<{ sym: string; name: string }> = [
+  { sym: "GME", name: "GameStop" },
+  { sym: "AMC", name: "AMC Entertainment" },
+  { sym: "KOSS", name: "Koss" },
+  { sym: "BB", name: "BlackBerry" },
+  { sym: "CVNA", name: "Carvana" },
+  { sym: "BYND", name: "Beyond Meat" },
+  { sym: "UPST", name: "Upstart" },
+  { sym: "LCID", name: "Lucid" },
+  { sym: "RIVN", name: "Rivian" },
+  { sym: "SOFI", name: "SoFi" },
+  { sym: "HOOD", name: "Robinhood" },
+  { sym: "PLTR", name: "Palantir" },
+  { sym: "TSLA", name: "Tesla" },
+  { sym: "NVDA", name: "Nvidia" },
+  { sym: "AAPL", name: "Apple" },
+];
+
 export default function TestLab({
   profiles,
   regime,
@@ -87,6 +107,18 @@ export default function TestLab({
             autoCapitalize="characters"
             spellCheck={false}
           />
+        </div>
+        <div className="field">
+          <label>Popular <span className="opt">(quick pick)</span></label>
+          <select
+            value={POPULAR.some((p) => p.sym === symbol) ? symbol : ""}
+            onChange={(e) => e.target.value && setSymbol(e.target.value)}
+          >
+            <option value="">— choose —</option>
+            {POPULAR.map((p) => (
+              <option key={p.sym} value={p.sym}>{p.sym} · {p.name}</option>
+            ))}
+          </select>
         </div>
         <div className="field">
           <label>Days-to-cover <span className="opt">(optional)</span></label>

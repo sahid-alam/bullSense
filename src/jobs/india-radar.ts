@@ -32,14 +32,11 @@ async function main() {
     return;
   }
 
-  const fiiDiiNet5d = fiiDiiHist.length >= 5 ? fiiDiiHist.slice(-5).reduce((a, b) => a + b.net, 0) : null;
-
   const radar = computeIndiaRadar({
     vixCloses: vix.map((b) => b.close),
     niftyCloses: nifty.map((b) => b.close),
     breadthPct: breadth.pct,
-    fiiDiiNet5d,
-    fiiDiiHistory: fiiDiiHist.map((h) => h.net),
+    fiiDiiDailyNet: fiiDiiHist.map((h) => h.net),
     inrUsdCloses: inr.map((b) => b.close),
     brentCloses: brent.map((b) => b.close),
   });
@@ -82,7 +79,7 @@ async function main() {
     date: asOf,
     score: radar.score,
     regime: effectiveRegime,
-    components: { ...radar.components, fii_dii_thin: radar.fiiDiiThin, breadth_detail: `${breadth.aboveMa}/${breadth.total} above 20DMA`, archive_date: archivedDate },
+    components: { ...radar.components, fii_dii_thin: radar.fiiDiiThin, fii_dii_net_5d: radar.fiiDiiNet5d, breadth_detail: `${breadth.aboveMa}/${breadth.total} above 20DMA`, archive_date: archivedDate },
     narrative,
     prev_score: prevScore,
   });

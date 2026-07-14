@@ -6,8 +6,11 @@
  * Reuses sma/percentileRank/bandRegime/applyHysteresis from radar.ts — no reimplementation.
  *
  * FII/DII flow capture started 2026-07-13 (forward-only; NSE's API is latest-day-only).
- * Until 5 days have accreted, that component reports neutral (50) rather than a false read —
- * same honesty discipline as the Advisor Card's interim-heuristic labeling.
+ * The 5-day net is ranked against a rolling series of 5-day sums (same window both sides —
+ * ranking a sum against single-day values would pin near 0/100 by magnitude alone, not by
+ * whether flows are actually strong). That needs ~20+ rolling windows (≈24+ days of daily
+ * data) before a percentile means anything, so the component reports neutral (50) until then
+ * — same honesty discipline as the Advisor Card's interim-heuristic labeling.
  */
 import { sma, percentileRank, bandRegime, type Regime } from "./radar.js";
 
@@ -25,7 +28,10 @@ export interface IndiaRadarResult {
   regime: Regime;
   components: IndiaRadarComponents;
   fiiDiiThin: boolean; // true when the flow component is a neutral placeholder, not a real read
+  fiiDiiNet5d: number | null; // the actual trailing 5-day net (INR cr), for narrative/telemetry — null while thin
 }
+
+const FII_DII_MIN_ROLLING_WINDOWS = 20;
 
 const WEIGHTS: Record<keyof IndiaRadarComponents, number> = {
   vix_level: 0.20,
@@ -40,8 +46,7 @@ export function computeIndiaRadar(inp: {
   vixCloses: number[];     // ~1y of ^INDIAVIX closes, oldest→newest
   niftyCloses: number[];   // ~1y of ^NSEI closes
   breadthPct: number;      // 0–100, from india_breadth() RPC
-  fiiDiiNet5d: number | null; // sum of last-5-days net FII+DII flow (INR cr); null if thin
-  fiiDiiHistory: number[]; // trailing daily net-flow history for percentile context (may be short)
+  fiiDiiDailyNet: number[]; // raw daily net FII+DII flow (INR cr), oldest→newest — may be short
   inrUsdCloses: number[];  // ~1y of INR=X closes (USD/INR — rising = rupee weakening)
   brentCloses: number[];   // ~1y of BZ=F closes (Brent crude)
 }): IndiaRadarResult {
@@ -70,11 +75,17 @@ export function computeIndiaRadar(inp: {
   // 3. Breadth — % of archived liquid NSE EQ symbols above their own N-day MA, direct 0–100
   const breadth = inp.breadthPct;
 
-  // 4. FII/DII 5-day net flow — percentile vs its own (short) history; neutral if thin
+  // 4. FII/DII 5-day net flow — rank the trailing 5-day SUM against a rolling series of
+  //    5-day sums (like-for-like units), not against single-day values.
+  const daily = inp.fiiDiiDailyNet;
+  const rollingSums: number[] = [];
+  for (let i = 4; i < daily.length; i++) rollingSums.push(daily.slice(i - 4, i + 1).reduce((a, b) => a + b, 0));
+  const fiiDiiThin = rollingSums.length < FII_DII_MIN_ROLLING_WINDOWS + 1; // +1: the current window itself
   let fii_dii = 50;
-  const fiiDiiThin = inp.fiiDiiNet5d === null || inp.fiiDiiHistory.length < 5;
-  if (!fiiDiiThin && inp.fiiDiiNet5d !== null) {
-    fii_dii = percentileRank(inp.fiiDiiHistory, inp.fiiDiiNet5d);
+  let fiiDiiNet5d: number | null = null;
+  if (!fiiDiiThin) {
+    fiiDiiNet5d = rollingSums[rollingSums.length - 1];
+    fii_dii = percentileRank(rollingSums.slice(0, -1), fiiDiiNet5d);
   }
 
   // 5. INR/USD stress — rupee weakening (rising INR=X) = stress = LOW score (inverted percentile
@@ -103,7 +114,7 @@ export function computeIndiaRadar(inp: {
       (acc, k) => acc + components[k] * WEIGHTS[k], 0),
   );
 
-  return { score, regime: bandRegime(score), components, fiiDiiThin };
+  return { score, regime: bandRegime(score), components, fiiDiiThin, fiiDiiNet5d };
 }
 
 function round1(x: number): number {

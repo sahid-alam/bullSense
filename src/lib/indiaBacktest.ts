@@ -27,6 +27,12 @@
  */
 import { indiaFriction } from "./indiaFriction.js";
 
+// Matches the Treasury's ~₹100k fractional position sizing (paperfund.ts ENGINE_START). At
+// qty:1 the DP charge's flat ₹15+GST fee reads as a ~1-2% per-trade cost artifact instead of
+// the near-nothing it is against a real position — that would overstate friction drag and could
+// falsely graveyard a genuinely-good family once the archive matures.
+const BACKTEST_NOTIONAL = 100_000;
+
 export interface NseBar { date: string; open: number; high: number; low: number; close: number; volume: number; deliveryPct: number | null }
 
 export interface IndiaGenomeParams {
@@ -122,7 +128,8 @@ function runIndiaBacktest(
       }
 
       const heldDays = Math.round(daysBetween(entryDate, exitDate));
-      const net = indiaFriction({ entry, exit, qty: 1, holdingDays: heldDays }).netReturnPct / 100;
+      const qty = Math.max(1, Math.round(BACKTEST_NOTIONAL / entry));
+      const net = indiaFriction({ entry, exit, qty, holdingDays: heldDays }).netReturnPct / 100;
       netRets.push(net); entryDates.push(entryDate);
       const nc0 = niftyClose(entryDate), nc1 = niftyClose(exitDate);
       niftyRets.push(nc0 && nc1 ? nc1 / nc0 - 1 : 0);

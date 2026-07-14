@@ -573,25 +573,34 @@ export async function nseFnoUniverse(): Promise<string[]> {
 }
 
 /** Archived EQ-series bars (+ delivery %) for a symbol universe, grouped per symbol, oldest→newest.
- *  Chunked: PostgREST caps rows per response (Supabase default 1000) regardless of `limit=`, so a
- *  wide `in.()` list over ~1y of daily bars silently truncates to whichever symbols sort first —
- *  chunk small enough (8 symbols × ~365d < 1000) that every chunk fits under the cap. */
+ *  Chunked + paginated: PostgREST caps rows per response (Supabase default 1000) regardless of
+ *  `limit=`, so a wide `in.()` list over a growing archive would silently truncate to whichever
+ *  rows sort first. Chunking by symbol keeps each request small; paginating with offset within
+ *  each chunk (looping until a short page returns) makes correctness independent of how many
+ *  days have accreted — a fixed "N symbols × ~365d < 1000" bound would silently re-break as the
+ *  archive matures past ~125 days at CHUNK=8. */
 export async function nseEquityBarsForUniverse(symbols: string[]): Promise<Map<string, Array<{ date: string; open: number; high: number; low: number; close: number; volume: number; deliveryPct: number | null }>>> {
   const bySymbol = new Map<string, Array<{ date: string; open: number; high: number; low: number; close: number; volume: number; deliveryPct: number | null }>>();
   const CHUNK = 8;
+  const PAGE = 1000;
   for (let i = 0; i < symbols.length; i += CHUNK) {
     const inList = symbols.slice(i, i + CHUNK).map((s) => encodeURIComponent(s)).join(",");
-    const rows = await rest(
-      `nse_equity?select=symbol,trade_date,open,high,low,close,volume,deliv_per&series=eq.EQ&symbol=in.(${inList})&order=symbol,trade_date&limit=1000`,
-      { method: "GET", headers: { Prefer: "return=representation" } },
-    );
-    for (const r of rows ?? []) {
-      if (r.open == null || r.high == null || r.low == null || r.close == null || r.volume == null) continue;
-      if (!bySymbol.has(r.symbol)) bySymbol.set(r.symbol, []);
-      bySymbol.get(r.symbol)!.push({
-        date: r.trade_date, open: Number(r.open), high: Number(r.high), low: Number(r.low), close: Number(r.close),
-        volume: Number(r.volume), deliveryPct: r.deliv_per != null ? Number(r.deliv_per) : null,
-      });
+    let offset = 0;
+    for (;;) {
+      const rows = await rest(
+        `nse_equity?select=symbol,trade_date,open,high,low,close,volume,deliv_per&series=eq.EQ&symbol=in.(${inList})&order=symbol,trade_date&limit=${PAGE}&offset=${offset}`,
+        { method: "GET", headers: { Prefer: "return=representation" } },
+      );
+      for (const r of rows ?? []) {
+        if (r.open == null || r.high == null || r.low == null || r.close == null || r.volume == null) continue;
+        if (!bySymbol.has(r.symbol)) bySymbol.set(r.symbol, []);
+        bySymbol.get(r.symbol)!.push({
+          date: r.trade_date, open: Number(r.open), high: Number(r.high), low: Number(r.low), close: Number(r.close),
+          volume: Number(r.volume), deliveryPct: r.deliv_per != null ? Number(r.deliv_per) : null,
+        });
+      }
+      if (!rows || rows.length < PAGE) break;
+      offset += PAGE;
     }
   }
   return bySymbol;
